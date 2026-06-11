@@ -1,9 +1,23 @@
 """
-Adapter: Pipeline-Daten → PREMA-CSVs
+Adapter: Pipeline-Daten -> PREMA-CSVs
 
 Liest bevorzugt engine_data_with_rul.csv, faellt auf engine_data_simulated.csv
-und zuletzt auf engine_data_final.csv zurueck. Schreibt die vier CSV-Dateien,
-die PREMA erwartet: fleet.csv, timeseries.csv, alerts.csv, truck_alerts.csv
+und zuletzt auf engine_data_final.csv zurueck. Schreibt die Dateien, die das
+Dashboard erwartet:
+
+    fleet.csv         Status-Snapshot je LKW (geglaettet ueber 24 h)
+    timeseries.csv    Sensor-Zeitreihen der letzten 72 h je LKW
+    alerts.csv        Alert-Feed der letzten 7 Tage (Ereignisse, dedupliziert)
+    truck_alerts.csv  Alert-Historie der letzten 30 Tage je LKW
+    metrics.json      ML-Metriken aus den Pipeline-Reports (falls vorhanden)
+
+Alert-Logik: Ein Alert wird nur bei einem Severity-Wechsel je LKW erzeugt
+(Zustandsuebergang), mit einer Re-Arm-Sperre von 6 h pro Severity-Stufe.
+Damit entsteht ein lesbarer Feed statt einer Meldung pro 30-Minuten-Messung.
+
+Severity-Quellen (FA-3, FA-4, FA-5):
+    KRITISCH / WARNUNG  -> XGBoost-Klassifikation (health_score-Schwellen)
+    INFO                -> Isolation Forest (Anomalie bei Status OK)
 
 Aufruf:
     python generate_from_tracking.py
@@ -12,15 +26,20 @@ Oder automatisch aus load_data() in app.py.
 
 from __future__ import annotations
 
+import json
+import re
+from datetime import datetime
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Pfade
 # ---------------------------------------------------------------------------
 _HERE = Path(__file__).parent
 _PIPELINE_DATA = _HERE.parent / "pipeline" / "data" / "engine_health"
+_PIPELINE_OUTPUTS = _HERE.parent / "pipeline" / "outputs"
 
 SOURCE_CANDIDATES = [
     _PIPELINE_DATA / "engine_data_with_rul.csv",
@@ -34,10 +53,27 @@ OUTPUT_DIR = _HERE
 # Konfiguration
 # ---------------------------------------------------------------------------
 
-# Fuer Simulator-Daten: Snapshot-Fenster, das eine gute Demo-Verteilung liefert.
-# Tag 53 von 90 ergibt ~2 KRITISCH, 4 WARNUNG, 4 OK.
-# 53 Tage * 48 Messungen/Tag = 2544 Schritte pro LKW.
-_SNAPSHOT_STEPS = 53 * 48
+# Snapshot-Fenster fuer Simulator-Daten (Tag X von 90, 48 Messungen/Tag).
+# Tag 49 ist der fruehste Tag, an dem LKW-01 (Demo-Szenario FA-7) KRITISCH
+# ist. Verteilung dort: 5 KRITISCH, 3 WARNUNG, 2 OK.
+_SNAPSHOT_DAY = 49
+_SNAPSHOT_STEPS = _SNAPSHOT_DAY * 48
+
+# Isolation-Forest-Anomalie: |z| oberhalb dieser Schwelle bei Status OK
+# erzeugt einen INFO-Alert (99%-Quantil der OK-Zeilen liegt bei ~3.2).
+_ANOMALY_Z_INFO = 2.5
+
+# Re-Arm-Sperre: gleicher LKW + gleiche Severity fruehestens nach 6 h erneut.
+_ALERT_REARM = pd.Timedelta(hours=6)
+
+# Geschaetzte Einsparung in EUR pro Stunde vermiedener Standzeit (FA-5).
+_SAVINGS_EUR_H = {"KRITISCH": 600, "WARNUNG": 400, "INFO": 0}
+
+_GENERIC_RECOMMENDATION = {
+    "KRITISCH": "Fahrzeug aus dem Verkehr ziehen, Werkstatt sofort",
+    "WARNUNG": "Wartungstermin innerhalb 14 Tagen einplanen",
+    "INFO": "Beobachten, keine sofortige Massnahme noetig",
+}
 
 # ---------------------------------------------------------------------------
 # Statische Mappings
@@ -61,17 +97,16 @@ _KM_PER_STEP: dict[str, float] = {
 }
 
 _STATUS_ORDER = {"KRITISCH": 0, "WARNUNG": 1, "OK": 2}
-_REVERSE_STATUS = {v: k for k, v in _STATUS_ORDER.items()}
 
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen
 # ---------------------------------------------------------------------------
 
 def _classify_status_hs(health_score: float) -> str:
-    """Status basierend auf health_score (bevorzugt fuer Simulator-Daten)."""
-    if health_score < 0.25:
+    """Status basierend auf health_score - identische Grenzen wie 16_classification_xgboost.py."""
+    if health_score <= 0.5:
         return "KRITISCH"
-    if health_score < 0.65:
+    if health_score <= 0.7:
         return "WARNUNG"
     return "OK"
 
@@ -97,6 +132,70 @@ def _brake_fluid_from_condition(g: pd.DataFrame) -> pd.Series:
     return (90 - faulty_ratio * 80).clip(5, 95).round(1)
 
 
+def _weather_label(temp_c, precip_mm) -> str:
+    """Leitet eine lesbare Wetterlage aus Temperatur und Niederschlag ab (FA-2)."""
+    if pd.isna(temp_c):
+        return ""
+    if pd.notna(precip_mm) and precip_mm > 0:
+        return "Schneefall" if temp_c <= 0.5 else "Regen"
+    return "Frost" if temp_c <= 0 else "Trocken"
+
+
+def _build_alert_events(src: pd.DataFrame) -> pd.DataFrame:
+    """Erzeugt deduplizierte Alert-Ereignisse aus den klassifizierten Messreihen.
+
+    Ein Ereignis entsteht beim Wechsel der Severity eines LKW (Zustands-
+    uebergang). Gleiche Severity desselben LKW wird fruehestens nach
+    _ALERT_REARM erneut gemeldet.
+    """
+    events = []
+    for _, grp in src.groupby("truck_id"):
+        prev_sev = None
+        last_emit: dict[str, pd.Timestamp] = {}
+        for row in grp.itertuples():
+            sev = row.alert_severity
+            if not isinstance(sev, str):
+                prev_sev = None
+                continue
+            changed = sev != prev_sev
+            prev_sev = sev
+            if not changed:
+                continue
+            last = last_emit.get(sev)
+            if last is not None and row.timestamp - last < _ALERT_REARM:
+                continue
+            last_emit[sev] = row.timestamp
+            events.append(row.Index)
+    return src.loc[events].copy()
+
+
+def _parse_report_metrics() -> dict:
+    """Liest ML-Metriken aus den Text-Reports der Pipeline (FA-6)."""
+    metrics: dict = {}
+    patterns = {
+        _PIPELINE_OUTPUTS / "13_rul_random_forest.txt": {
+            "rul_mae_days": r"MAE gesamt\s*:\s*([\d.]+)",
+            "rul_r2": r"R\^2\s*:\s*([\d.]+)",
+        },
+        _PIPELINE_OUTPUTS / "16_classification_xgboost.txt": {
+            "clf_accuracy": r"Accuracy\s*:\s*([\d.]+)",
+            "clf_macro_f1": r"Macro-F1\s*:\s*([\d.]+)",
+            "clf_recall_critical": r"Recall KRITISCH\s*:\s*([\d.]+)",
+        },
+    }
+    for path, keys in patterns.items():
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for key, rx in keys.items():
+            m = re.search(rx, text)
+            if m:
+                metrics[key] = float(m.group(1))
+    if (_PIPELINE_OUTPUTS / "15_anomaly_isolation_forest.txt").exists():
+        metrics["anomaly_model"] = "Isolation Forest (kalibriert, Baseline 14 Tage)"
+    return metrics
+
+
 # ---------------------------------------------------------------------------
 # Hauptfunktion
 # ---------------------------------------------------------------------------
@@ -109,7 +208,7 @@ def main() -> None:
             break
 
     if src_path is None:
-        print("[generate_from_tracking] Keine Quelldatei gefunden – uebersprungen.")
+        print("[generate_from_tracking] Keine Quelldatei gefunden - uebersprungen.")
         return
 
     print(f"[generate_from_tracking] Lese {src_path.name}")
@@ -120,9 +219,9 @@ def main() -> None:
     has_direct_sensors  = "tire_pressure_bar" in src.columns
     has_odometer        = "odometer_km" in src.columns
     has_rul_predicted   = "rul_predicted" in src.columns
+    has_weather         = "temperature_c" in src.columns
 
-    # Snapshot-Fenster: nur erste _SNAPSHOT_STEPS Zeilen pro LKW verwenden,
-    # damit die Demo-Verteilung (2-3 KRITISCH, ~4 WARNUNG, ~4 OK) stimmt.
+    # Snapshot-Fenster: nur erste _SNAPSHOT_STEPS Zeilen pro LKW verwenden.
     if has_health_score:
         src = src.groupby("truck_id").head(_SNAPSHOT_STEPS).reset_index(drop=True)
 
@@ -132,10 +231,9 @@ def main() -> None:
 
     rng = np.random.default_rng(42)
 
-    # ── Sensor-Spalten normalisieren ──────────────────────────────────────────
+    # -- Sensor-Spalten normalisieren ----------------------------------------
     if has_health_score:
-        # Bremsfluessigkeit aus health_score skalieren: health=1 → 95%, health=0 → 5%
-        # Damit zeigen degradierte LKW visuell niedrige Bremsfl.-Werte im Dashboard.
+        # Bremsfluessigkeit aus health_score skalieren: health=1 -> 95%, health=0 -> 5%
         src["brake_fluid_pct"] = (src["health_score"] * 90 + 5).clip(5, 95).round(1)
     elif "brake_fluid_pct" not in src.columns:
         src["brake_fluid_pct"] = src.groupby("truck_id", group_keys=False).apply(
@@ -166,7 +264,7 @@ def main() -> None:
         )
 
     src["lkw_id"]           = src["truck_id"]
-    src["driver"]           = src["truck_id"].map(DRIVER_MAP)
+    src["driver"]           = src["truck_id"].map(DRIVER_MAP).fillna("n. n.")
     src["motor_temp_c"]     = src["Coolant temp"].round(1)
     src["oil_pressure_bar"] = src["Lub oil pressure"].round(2)
     src["max_z_abs"]        = src["max_z_score"].abs().fillna(0)
@@ -178,7 +276,16 @@ def main() -> None:
             lambda r: _classify_status_fallback(r["Engine Condition"], r["max_z_abs"]), axis=1
         )
 
-    # ── fleet.csv: schlechtester Status der letzten 48 Schritte (= 24 h) je LKW
+    # Alert-Severity je Messzeile (FA-3 + FA-4):
+    #   KRITISCH/WARNUNG aus der Klassifikation, INFO aus dem Isolation
+    #   Forest (Anomalie trotz Status OK), sonst keine Meldung (NaN).
+    src["alert_severity"] = src["status"].where(src["status"] != "OK")
+    info_mask = (src["status"] == "OK") & (src["max_z_abs"] > _ANOMALY_Z_INFO)
+    src.loc[info_mask, "alert_severity"] = "INFO"
+
+    # -- fleet.csv: Status je LKW geglaettet ueber die letzten 48 Schritte ----
+    # Median des health_scores der letzten 24 h verhindert, dass ein einzelner
+    # Ausreisser-Messwert ein Fahrzeug auf KRITISCH eskaliert.
     FLEET_COLS = [
         "lkw_id", "driver", "status", "motor_temp_c", "brake_fluid_pct",
         "oil_pressure_bar", "tire_fl_bar", "tire_fr_bar", "rul_hours",
@@ -187,83 +294,101 @@ def main() -> None:
     fleet_rows = []
     for _, grp in src.groupby("truck_id"):
         recent = grp.tail(48)
-        worst_order = recent["status"].map(_STATUS_ORDER).min()
         last_row = grp.iloc[-1].copy()
-        last_row["status"] = _REVERSE_STATUS[worst_order]
+        if has_health_score:
+            last_row["status"] = _classify_status_hs(recent["health_score"].median())
+        else:
+            worst = recent["status"].map(_STATUS_ORDER).min()
+            last_row["status"] = {v: k for k, v in _STATUS_ORDER.items()}[worst]
+        last_row["rul_hours"] = int(recent["rul_hours"].median())
         fleet_rows.append(last_row[FLEET_COLS])
 
     pd.DataFrame(fleet_rows).to_csv(OUTPUT_DIR / "fleet.csv", index=False)
 
-    # ── timeseries.csv: letzte 144 Schritte je LKW = 72 h ────────────────────
+    # -- timeseries.csv: letzte 144 Schritte je LKW = 72 h --------------------
     ts_rows = src.groupby("truck_id", group_keys=False).tail(144)
-    ts_rows[["lkw_id", "timestamp", "brake_fluid_pct", "motor_temp_c"]].to_csv(
+    ts_rows[["lkw_id", "timestamp", "brake_fluid_pct", "motor_temp_c", "oil_pressure_bar"]].to_csv(
         OUTPUT_DIR / "timeseries.csv", index=False
     )
 
-    # ── alerts.csv: kritische/warnende Ereignisse der letzten 7 Tage ──────────
+    # -- Alert-Ereignisse (dedupliziert) fuer Feed und Historie ---------------
+    events = _build_alert_events(src)
+
+    def _message(r) -> str:
+        if r["alert_severity"] == "INFO":
+            feat = r.get("most_anomalous_feature", "")
+            return f"Anomalie erkannt: {feat} (z={r['max_z_abs']:.1f})"
+        dtc = r.get("primary_dtc_german")
+        if pd.notna(dtc) and str(dtc).strip():
+            return str(dtc)
+        feat = r.get("most_anomalous_feature", "Sensorwerte")
+        return f"Auffaelliges Muster: {feat}"
+
+    def _recommendation(r) -> str:
+        action = r.get("primary_dtc_action")
+        if r["alert_severity"] != "INFO" and pd.notna(action) and str(action).strip():
+            return str(action)
+        return _GENERIC_RECOMMENDATION[r["alert_severity"]]
+
+    events["severity"] = events["alert_severity"]
+    events["message"] = events.apply(_message, axis=1)
+    events["recommendation"] = events.apply(_recommendation, axis=1)
+    events["source"] = np.where(
+        events["severity"] == "INFO", "Isolation Forest", "XGBoost-Klassifikation"
+    )
+    events["savings_eur"] = events["severity"].map(_SAVINGS_EUR_H).astype(int)
+    if "primary_dtc_code" in events.columns:
+        events["dtc_code"] = events["primary_dtc_code"].fillna("")
+        events.loc[events["severity"] == "INFO", "dtc_code"] = ""
+    else:
+        events["dtc_code"] = ""
+    if has_weather:
+        events["temperature_c"] = events["temperature_c"].round(1)
+        events["weather"] = events.apply(
+            lambda r: _weather_label(r["temperature_c"], r.get("precipitation_mm")), axis=1
+        )
+    else:
+        events["temperature_c"] = np.nan
+        events["weather"] = ""
+    if "route_type" not in events.columns:
+        events["route_type"] = ""
+    events["load_pct"] = events.get("load_pct", pd.Series(np.nan, index=events.index)).round(0)
+
+    ALERT_COLS = [
+        "timestamp", "severity", "lkw_id", "message", "source", "savings_eur",
+        "dtc_code", "recommendation", "temperature_c", "weather", "load_pct", "route_type",
+    ]
+
+    # alerts.csv: Feed der letzten 7 Tage
     cutoff_7d = src["timestamp"].max() - pd.Timedelta(days=7)
-    if has_health_score:
-        fault_mask = (src["timestamp"] >= cutoff_7d) & (src["health_score"] < 0.65)
-    else:
-        fault_mask = (
-            (src["timestamp"] >= cutoff_7d) &
-            ((src["Engine Condition"] == 0) | (src["max_z_abs"] > 1.5))
-        )
-    fault = src[fault_mask].copy()
-    fault["severity"] = (
-        fault["health_score"].map(_classify_status_hs)
-        if has_health_score
-        else fault.apply(lambda r: _classify_status_fallback(r["Engine Condition"], r["max_z_abs"]), axis=1)
+    feed = events[events["timestamp"] >= cutoff_7d]
+    feed.sort_values("timestamp", ascending=False)[ALERT_COLS].head(120).to_csv(
+        OUTPUT_DIR / "alerts.csv", index=False
     )
-    fault["message"] = fault.apply(
-        lambda r: (
-            r["primary_dtc_german"]
-            if pd.notna(r.get("primary_dtc_german")) and str(r.get("primary_dtc_german", "")).strip()
-            else f"Anomalie: {r['most_anomalous_feature']}"
-        ),
-        axis=1,
-    )
-    fault["source"] = fault["severity"].map({
-        "KRITISCH": "XGBoost-Klassifikation",
-        "WARNUNG":  "XGBoost-Klassifikation",
-        "INFO":     "Isolation Forest",
-    }).fillna("Isolation Forest")
-    fault["savings_eur"] = fault["severity"].map(
-        {"KRITISCH": 600, "WARNUNG": 400, "INFO": 200}
-    ).fillna(200).astype(int)
 
-    fault.sort_values("timestamp", ascending=False)[
-        ["timestamp", "severity", "lkw_id", "message", "source", "savings_eur"]
-    ].head(50).to_csv(OUTPUT_DIR / "alerts.csv", index=False)
-
-    # ── truck_alerts.csv: letzte 30 Tage je LKW (fuer Detail-View) ───────────
+    # truck_alerts.csv: Historie der letzten 30 Tage je LKW (fuer Detail-View)
     cutoff_30d = src["timestamp"].max() - pd.Timedelta(days=30)
-    if has_health_score:
-        truck_mask = (src["timestamp"] >= cutoff_30d) & (src["health_score"] < 0.5)
-    else:
-        truck_mask = (
-            (src["timestamp"] >= cutoff_30d) &
-            (src["Engine Condition"] == 0)
-        )
-    truck_fault = src[truck_mask].copy()
-    truck_fault["severity"] = (
-        truck_fault["health_score"].map(_classify_status_hs)
-        if has_health_score
-        else truck_fault.apply(lambda r: _classify_status_fallback(r["Engine Condition"], r["max_z_abs"]), axis=1)
-    )
-    truck_fault["message"] = truck_fault.apply(
-        lambda r: (
-            r["primary_dtc_german"]
-            if pd.notna(r.get("primary_dtc_german")) and str(r.get("primary_dtc_german", "")).strip()
-            else f"Anomalie: {r['most_anomalous_feature']}"
-        ),
-        axis=1,
-    )
-    truck_fault.sort_values("timestamp", ascending=False)[
-        ["timestamp", "lkw_id", "severity", "message"]
-    ].head(200).to_csv(OUTPUT_DIR / "truck_alerts.csv", index=False)
+    history = events[events["timestamp"] >= cutoff_30d]
+    history.sort_values("timestamp", ascending=False)[
+        ["timestamp", "lkw_id", "severity", "message", "dtc_code", "recommendation"]
+    ].head(400).to_csv(OUTPUT_DIR / "truck_alerts.csv", index=False)
 
-    print("[generate_from_tracking] fleet.csv, timeseries.csv, alerts.csv, truck_alerts.csv generiert.")
+    # -- metrics.json: ML-Guete aus den Pipeline-Reports (FA-6) ---------------
+    metrics = _parse_report_metrics()
+    metrics.update({
+        "source_file": src_path.name,
+        "snapshot_day": _SNAPSHOT_DAY if has_health_score else None,
+        "n_trucks": int(src["truck_id"].nunique()),
+        "n_rows": int(len(src)),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    })
+    (OUTPUT_DIR / "metrics.json").write_text(
+        json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    n_feed = len(feed)
+    print(f"[generate_from_tracking] fleet.csv, timeseries.csv, alerts.csv "
+          f"({n_feed} Ereignisse/7d), truck_alerts.csv, metrics.json generiert.")
 
 
 if __name__ == "__main__":

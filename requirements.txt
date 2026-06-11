@@ -1,5 +1,5 @@
 # Dashboard
-streamlit>=1.36.0
+streamlit>=1.49.0  # width="stretch"-API (ersetzt use_container_width)
 pandas>=2.2.2
 altair>=5.3.0
 numpy>=2.0.0

@@ -1,6 +1,8 @@
 services:
   streamlit-app:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     image: tracking/streamlit-app:latest
     container_name: tracking-streamlit
     ports:

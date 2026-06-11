@@ -16,6 +16,7 @@ __pycache__/
 pipeline/data/engine_health/engine_data_simulated.csv
 pipeline/data/engine_health/engine_data_features.csv
 pipeline/data/engine_health/engine_data_with_rul.csv
+pipeline/data/engine_health/engine_data_anomaly.csv
 pipeline/outputs/models/
 
 # Generierte Dashboard-CSVs (werden beim App-Start automatisch erzeugt)
@@ -23,6 +24,7 @@ data/fleet.csv
 data/timeseries.csv
 data/alerts.csv
 data/truck_alerts.csv
+data/metrics.json
 
 # Generierte Pipeline-Outputs (Charts und Logs)
 pipeline/outputs/charts/

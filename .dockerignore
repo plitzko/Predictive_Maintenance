@@ -10,6 +10,8 @@ __pycache__
 .vscode
 *.swp
 .env
-README.md
 *.md
 !README.md
+docs/
+tests/
+.streamlit/secrets.toml

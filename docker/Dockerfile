@@ -24,6 +24,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # 2) Anwendung
 COPY app.py .
+COPY .streamlit/ ./.streamlit/
 COPY data/ ./data/
 COPY ["pipeline", "./pipeline"]
 
@@ -32,7 +33,7 @@ COPY ["pipeline", "./pipeline"]
 #    optional und werden hier nicht automatisch ausgefuehrt - die
 #    erzeugten Charts liegen bereits im Repo.
 WORKDIR /app
-COPY entrypoint.sh /entrypoint.sh
+COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 8501

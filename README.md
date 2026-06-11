@@ -42,8 +42,31 @@ app.py  (liest die vier CSVs, ruft Adapter beim Start automatisch auf)
 
 Der Adapter bevorzugt `engine_data_with_rul.csv`, faellt auf
 `engine_data_simulated.csv` und zuletzt auf `engine_data_final.csv` zurueck.
-Fuer das Dashboard-Snapshot wird Tag 53 der Simulation gewaehlt, weil dort
-die Demo-Verteilung (ca. 2 KRITISCH, 5 WARNUNG, 3 OK) am realistischsten ist.
+Fuer das Dashboard-Snapshot wird Tag 49 der Simulation gewaehlt: der
+fruehste Tag, an dem LKW-01 (Demo-Szenario FA-7) KRITISCH ist.
+Verteilung dort: 5 KRITISCH, 3 WARNUNG, 2 OK.
+
+Der Flotten-Status je LKW wird ueber den Median des health_scores der
+letzten 24 h geglaettet, damit einzelne Ausreisser-Messungen kein Fahrzeug
+auf KRITISCH eskalieren.
+
+### Alert-Logik
+
+Ein Alert entsteht nur beim Severity-Wechsel eines LKW (Zustandsuebergang),
+mit 6 h Re-Arm-Sperre pro Stufe — statt einer Meldung pro 30-Minuten-Messung.
+Severity-Quellen:
+
+- **KRITISCH / WARNUNG** — XGBoost-Klassifikation (health_score-Schwellen
+  0.5 / 0.7), Meldung aus dem DTC-Mapping inkl. Code und
+  Handlungsempfehlung.
+- **INFO** — Isolation Forest: |z| > 2.5 bei Status OK.
+
+Jeder Alert traegt Kontext aus der Anreicherung (FA-2): Temperatur,
+Wetterlage, Beladung und Routentyp.
+
+Zusaetzlich schreibt der Adapter `data/metrics.json` mit den ML-Metriken
+aus den Pipeline-Reports (Accuracy, Recall KRITISCH, RUL-MAE, R²); das
+Dashboard zeigt sie in der Flottenansicht unter "ML-Modellguete" (FA-6).
 
 ## Was die ML-Skripte messen (und was nicht)
 
@@ -93,18 +116,30 @@ prema/
 |-- app.py                          # Streamlit-Dashboard (3 Screens)
 |-- requirements.txt
 |-- runtime.txt                     # Python-Version fuer Streamlit Cloud
-|-- Dockerfile
-|-- docker-compose.yml
-|-- entrypoint.sh
+|-- docker-compose.yml              # ein Befehl: docker compose up
+|-- README.md / TASKS.md
 |-- .streamlit/
 |   `-- config.toml                 # Streamlit-Theme (PREMA-Farben)
+|
+|-- docs/
+|   |-- Pflichtenheft_Predictive_Maintenance.pdf
+|   `-- Begleitende_Praesentation_Pflichtenheft.pdf
+|
+|-- docker/
+|   |-- Dockerfile
+|   `-- entrypoint.sh               # Pipeline-Lauf beim Container-Start
+|
+|-- tests/
+|   `-- smoke_test.py               # AppTest: alle Views + Login-Flow
 |
 |-- data/
 |   |-- generate_from_tracking.py   # Adapter Pipeline → Dashboard-CSVs
 |   |-- fleet.csv                   # generiert
 |   |-- timeseries.csv              # generiert
 |   |-- alerts.csv                  # generiert
-|   `-- truck_alerts.csv            # generiert
+|   |-- truck_alerts.csv            # generiert
+|   |-- metrics.json                # generiert (ML-Metriken fuer FA-6)
+|   `-- feedback.csv                # Werkstatt-Feedback (FA-8)
 |
 `-- pipeline/
     |-- scripts/
@@ -168,6 +203,30 @@ Dashboard starten:
 streamlit run app.py
 ```
 
+Smoke-Tests (rendert alle Views + Login-Flow headless):
+
+```bash
+python tests/smoke_test.py
+```
+
+### Optionaler Passwortschutz (NFR Zugriffsschutz)
+
+Ohne Konfiguration laeuft das Dashboard im offenen Demo-Modus. Fuer
+rollenbasierten Login eine `.streamlit/secrets.toml` anlegen (nicht
+committen):
+
+```toml
+[passwords]
+fm = "..."   # Flottenmanager
+wl = "..."   # Werkstattleiter
+```
+
+Hinweis: Nach dem Login traegt die URL-Navigation ein Hash-Token
+(SHA-256 des Passworts, gekuerzt), damit die Anmeldung Link-Klicks und
+Reloads uebersteht — Streamlit startet bei jeder Navigation eine neue
+Session. Das Klartext-Passwort landet nie in der URL (MVP-Loesung, im
+Zielbild ersetzt durch echte Session-Cookies).
+
 Der Adapter `data/generate_from_tracking.py` wird beim Dashboard-Start
 automatisch ausgefuehrt und aktualisiert die vier CSVs aus der Pipeline-Ausgabe.
 Er kann auch manuell aufgerufen werden:
@@ -200,7 +259,10 @@ Health-Check: `http://localhost:8501/_stcore/health`
   innerhalb von 90 Tagen.
 - Feature Engineering: 22 → 75 Spalten, kein Zeilenverlust.
 - RUL-Modell: MAE 8 Tage (Test-Set), R² 0,68. Top-Feature: health_score.
-- Dashboard-Snapshot: Tag 53 der Simulation → 2 KRITISCH, 5 WARNUNG, 3 OK.
+- XGBoost-Klassifikation (ohne health_score als Feature): Accuracy 0,71,
+  Recall KRITISCH 0,85.
+- Dashboard-Snapshot: Tag 49 der Simulation → 5 KRITISCH, 3 WARNUNG, 2 OK
+  (fruehster Tag mit LKW-01 = KRITISCH fuer das Demo-Szenario FA-7).
 
 ## Datenquellen
 
