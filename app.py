@@ -165,12 +165,17 @@ st.markdown("""
     /* ── Sensor-Leiste ── */
     .sensor-row {
         display: grid;
-        grid-template-columns: 28px 1fr 130px 64px;
+        grid-template-columns: 1fr 130px 64px;
         gap: 0.7rem; align-items: center; padding: 0.5rem 0;
         border-bottom: 1px solid var(--p-border);
     }
-    .sensor-icon { font-size: 1.1rem; text-align: center; }
     .sensor-label { font-size: 0.8rem; color: var(--text-color); font-weight: 500; }
+
+    /* ── Status-Dot ── */
+    .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
+    .status-dot-kritisch { background: var(--p-accent); }
+    .status-dot-warnung  { background: var(--p-warn); }
+    .status-dot-ok       { background: var(--p-ok); }
     .sensor-bar-bg {
         height: 6px; background: var(--secondary-background-color);
         border-radius: 3px; overflow: hidden;
@@ -327,6 +332,52 @@ st.markdown("""
         font-size: 0.78rem; font-weight: 600;
         letter-spacing: 0.06em; padding: 0.45rem 0.9rem;
     }
+
+    /* ── Rollen-Auswahl ── */
+    .role-screen { max-width: 640px; margin: 3.5rem auto; }
+    .role-screen-brand {
+        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.9rem; font-weight: 700;
+        letter-spacing: 0.18em; color: var(--text-color); margin-bottom: 0.25rem;
+    }
+    .role-screen-brand-accent { color: var(--p-accent); }
+    .role-screen-tagline {
+        font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase;
+        color: var(--text-color); opacity: 0.35; margin-bottom: 2.8rem;
+    }
+    .role-screen-heading {
+        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.4rem; font-weight: 700;
+        color: var(--text-color); margin-bottom: 1.4rem;
+    }
+    .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
+    .role-card {
+        background: var(--background-color); border: 1px solid var(--p-border); border-radius: 8px;
+        padding: 1.9rem 1.7rem; cursor: pointer; transition: all 0.18s ease;
+        display: block; color: inherit; position: relative; overflow: hidden;
+    }
+    .role-card::before {
+        content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
+        background: var(--p-accent); opacity: 0; transition: opacity 0.18s ease;
+    }
+    .role-card:hover::before { opacity: 1; }
+    .role-card:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,0,0,0.09); border-color: rgba(255,61,76,0.22); }
+    .role-card,.role-card *,.role-card:visited,.role-card:hover,.role-card:active { text-decoration: none !important; color: inherit; }
+    .role-card-type {
+        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.6rem; font-weight: 700;
+        letter-spacing: 0.18em; text-transform: uppercase; color: var(--p-accent); margin-bottom: 0.4rem;
+    }
+    .role-card-name {
+        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.2rem; font-weight: 700;
+        color: var(--text-color); margin-bottom: 1.2rem;
+    }
+    .role-card-features { list-style: none; padding: 0; margin: 0 0 1.5rem 0; }
+    .role-card-features li {
+        font-size: 0.77rem; padding: 0.3rem 0; color: var(--text-color); opacity: 0.58;
+        border-bottom: 1px solid var(--p-border);
+    }
+    .role-card-cta {
+        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.78rem; font-weight: 700;
+        color: var(--p-accent); letter-spacing: 0.04em;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -364,12 +415,18 @@ fleet, timeseries, alerts, truck_alerts = load_data()
 # ============================================================================
 # Session state for navigation
 # ============================================================================
+if "role" not in st.session_state:
+    st.session_state.role = None
 if "view" not in st.session_state:
     st.session_state.view = "fleet"
 if "selected_truck" not in st.session_state:
     st.session_state.selected_truck = None
 if "alert_filter" not in st.session_state:
     st.session_state.alert_filter = "ALLE"
+
+query_role = st.query_params.get("role")
+if query_role in ("fm", "wl"):
+    st.session_state.role = query_role
 
 query_view = st.query_params.get("view")
 if query_view == "fleet":
@@ -399,47 +456,71 @@ def severity_color(severity):
 def compact_number(value):
     return f"{value:,}".replace(",", ".")
 
+def _role_param():
+    r = st.session_state.get("role") or ""
+    return f"&role={r}" if r else ""
+
 def detail_href(truck_id):
-    return f"?view=detail&truck={quote(str(truck_id))}"
+    return f"?view=detail&truck={quote(str(truck_id))}{_role_param()}"
 
 def fleet_href():
-    return "?view=fleet"
+    return f"?view=fleet{_role_param()}"
 
 def alerts_href(filter_severity):
-    return f"?view=alerts&filter={quote(str(filter_severity))}"
+    return f"?view=alerts&filter={quote(str(filter_severity))}{_role_param()}"
 
 # ============================================================================
 # Header
 # ============================================================================
-st.markdown("""
+_role_labels = {
+    "fm": "Thomas Müller · Flottenmanager",
+    "wl": "Stefan Berger · Werkstattleiter",
+}
+_h_user = _role_labels.get(st.session_state.role, "")
+_switch_link = (
+    ' &nbsp;<a href="?" target="_self" style="color:rgba(255,255,255,0.45);'
+    'font-size:0.68rem;letter-spacing:0.05em;text-decoration:none!important;">Wechseln</a>'
+    if st.session_state.role else ""
+)
+st.markdown(f"""
 <div class="header-bar">
     <div class="header-brand">
-        <span class="header-brand-icon">🚛</span>
         <span>PRE<span class="header-brand-accent">MA</span></span>
     </div>
-    <div class="header-user">
-        <span>👤</span>
-        <span>Thomas Müller · Spedition Müller GmbH</span>
+    <div class="header-user" style="font-size:0.75rem;opacity:0.7;">
+        {_h_user}{_switch_link}
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Navigation with one consistent URL-link behavior
-fleet_nav_class = "nav-button active" if st.session_state.view == "fleet" else "nav-button inactive"
-alerts_nav_class = "nav-button active" if st.session_state.view == "alerts" else "nav-button inactive"
-detail_nav = (
-    f'<span class="nav-button detail">📋 {st.session_state.selected_truck}</span>'
-    if st.session_state.view == "detail" and st.session_state.selected_truck
-    else ""
-)
-st.markdown(f"""
-<div class="nav-buttons">
-    <a class="{fleet_nav_class}" href="{fleet_href()}" target="_self">📊 FLOTTENÜBERSICHT</a>
-    <a class="{alerts_nav_class}" href="{alerts_href("ALLE")}" target="_self">🔔 ALERTS</a>
-    {detail_nav}
-    
-</div>
-""", unsafe_allow_html=True)
+if st.session_state.role:
+    _fnc = "nav-button active" if st.session_state.view == "fleet" else "nav-button inactive"
+    _fleet_label = "FLOTTE" if st.session_state.role == "fm" else "WARTUNG"
+    _nav_html = f'<div class="nav-buttons"><a class="{_fnc}" href="{fleet_href()}" target="_self">{_fleet_label}</a>'
+    if st.session_state.role == "fm":
+        _anc = "nav-button active" if st.session_state.view == "alerts" else "nav-button inactive"
+        _nav_html += f'<a class="{_anc}" href="{alerts_href("ALLE")}" target="_self">ALERTS</a>'
+    if st.session_state.view == "detail" and st.session_state.selected_truck:
+        _nav_html += f'<span class="nav-button detail">{st.session_state.selected_truck}</span>'
+    _nav_html += '</div>'
+    st.markdown(_nav_html, unsafe_allow_html=True)
+
+# ============================================================================
+# Feedback helper
+# ============================================================================
+def save_feedback(truck_id: str, verdict: str) -> None:
+    feedback_path = Path(__file__).parent / "data" / "feedback.csv"
+    new_row = pd.DataFrame([{
+        "timestamp": datetime.now().isoformat(),
+        "lkw_id": truck_id,
+        "verdict": verdict,
+    }])
+    if feedback_path.exists():
+        existing = pd.read_csv(feedback_path)
+        pd.concat([existing, new_row], ignore_index=True).to_csv(feedback_path, index=False)
+    else:
+        new_row.to_csv(feedback_path, index=False)
+
 
 # ============================================================================
 # SCREEN 1: FLEET OVERVIEW
@@ -450,6 +531,7 @@ def render_fleet_overview():
     n_warn = (fleet["status"] == "WARNUNG").sum()
     n_crit = (fleet["status"] == "KRITISCH").sum()
     avoided_eur = n_crit * 600 * 4  # 4h pro vermiedener Panne
+    avg_rul = int(fleet["rul_hours"].mean())
 
     # KPI cards - clickable via buttons
     st.markdown('<div class="kpi-grid">', unsafe_allow_html=True)
@@ -458,58 +540,56 @@ def render_fleet_overview():
     with col1:
         st.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-card-header">
-                <div class="kpi-card-icon">🚚</div>
-                <div class="kpi-label">Fahrzeuge gesamt</div>
-            </div>
+            <div class="kpi-label">Fahrzeuge gesamt</div>
             <div class="kpi-value">{n_total}</div>
             <div class="kpi-sub">aktive Flotte</div>
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col2:
         st.markdown(f"""
         <div class="kpi-card ok">
-            <div class="kpi-card-header">
-                <div class="kpi-card-icon">✅</div>
-                <div class="kpi-label">Status OK</div>
-            </div>
+            <div class="kpi-label">Status OK</div>
             <div class="kpi-value">{n_ok}</div>
             <div class="kpi-sub">{n_ok/n_total*100:.0f}% der Flotte</div>
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col3:
         st.markdown(f"""
         <a class="kpi-link" href="{alerts_href("WARNUNG")}" target="_self">
             <div class="kpi-card warning">
-                <div class="kpi-card-header">
-                    <div class="kpi-card-icon">⚠️</div>
-                    <div class="kpi-label">Warnung</div>
-                </div>
+                <div class="kpi-label">Warnung</div>
                 <div class="kpi-value">{n_warn}</div>
                 <div class="kpi-sub">Wartung in &lt; 14 Tagen</div>
             </div>
         </a>
         """, unsafe_allow_html=True)
-    
+
     with col4:
-        st.markdown(f"""
-        <a class="kpi-link" href="{alerts_href("KRITISCH")}" target="_self">
-            <div class="kpi-card critical">
-                <div class="kpi-card-header">
-                    <div class="kpi-card-icon">🚨</div>
-                    <div class="kpi-label">Kritisch</div>
-                </div>
-                <div class="kpi-value">{n_crit}</div>
-                <div class="kpi-sub">~ {compact_number(avoided_eur)} EUR verhinderte Kosten</div>
+        if st.session_state.get("role") == "wl":
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Ø RUL Flotte</div>
+                <div class="kpi-value">{compact_number(avg_rul)} h</div>
+                <div class="kpi-sub">Durchschn. Restlaufzeit</div>
             </div>
-        </a>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <a class="kpi-link" href="{alerts_href("KRITISCH")}" target="_self">
+                <div class="kpi-card critical">
+                    <div class="kpi-label">Kritisch</div>
+                    <div class="kpi-value">{n_crit}</div>
+                    <div class="kpi-sub">~ {compact_number(avoided_eur)} EUR verhinderte Kosten</div>
+                </div>
+            </a>
+            """, unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="section-title"><span class="section-icon">🏆</span> Flottenstatus</div>', unsafe_allow_html=True)
+    _title_text = "Wartungsübersicht" if st.session_state.get("role") == "wl" else "Flottenstatus"
+    st.markdown(f'<div class="section-title">{_title_text}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="section-sub">SORTIERT NACH PRIORITÄT · LIVE-DATEN AUS BATCH-PIPELINE · STAND {datetime.now().strftime("%H:%M")} UHR</div>', unsafe_allow_html=True)
 
     # Sort: critical first, then warning, then OK
@@ -530,18 +610,17 @@ def render_fleet_overview():
     </div>
     """, unsafe_allow_html=True)
 
-    # Rows - clickable rows
-    for idx, (_, truck) in enumerate(fleet_sorted.iterrows()):
+    for _, truck in fleet_sorted.iterrows():
         row_class = "truck-table-row"
         if truck["status"] == "KRITISCH":
             row_class += " critical"
         elif truck["status"] == "WARNUNG":
             row_class += " warning"
-        status_icon = {"KRITISCH": "🚨", "WARNUNG": "⚠️", "OK": "✅"}.get(truck["status"], "ℹ️")
+        dot_cls = truck["status"].lower()
         st.markdown(f"""
         <a class="row-link" href="{detail_href(truck['lkw_id'])}" target="_self">
             <div class="{row_class}">
-                <div class="truck-icon">{status_icon}</div>
+                <div class="truck-icon"><span class="status-dot status-dot-{dot_cls}"></span></div>
                 <div class="truck-id">{truck['lkw_id']}</div>
                 <div>{truck['driver']}</div>
                 <div>{truck['motor_temp_c']:.0f} °C</div>
@@ -561,14 +640,13 @@ def render_truck_detail():
 
     st.markdown(
         f'<div class="section-title" style="font-size:1.35rem; margin-top:0.5rem;">'
-        f'📍 {truck_id} &nbsp;·&nbsp; 👤 {truck["driver"]}</div>',
+        f'{truck_id} &nbsp;·&nbsp; {truck["driver"]}</div>',
         unsafe_allow_html=True,
     )
 
     # Recommendation banner
     if truck["status"] == "KRITISCH":
         banner_cls = ""
-        status_icon = "🚨"
         title = "SOFORTIGE WARTUNG EMPFOHLEN"
         issues = []
         if truck["brake_fluid_pct"] < 15:
@@ -581,18 +659,16 @@ def render_truck_detail():
         text = f"XGBoost-Modell stuft {truck_id} als kritisch ein. {issue_str} – Grenzwerte überschritten. Empfehlung: Fahrzeug aus dem Verkehr ziehen, Werkstattauftrag automatisch angelegt."
     elif truck["status"] == "WARNUNG":
         banner_cls = "warning"
-        status_icon = "⚠️"
-        title = f"VERSCHLEISS ERHÖHT · Wartung innerhalb 14 Tagen"
-        text = f"Verschleißmuster über Schwellwert. Wartung kann planbar in den nächsten 14 Tagen erfolgen."
+        title = "VERSCHLEISS ERHÖHT · Wartung innerhalb 14 Tagen"
+        text = "Verschleißmuster über Schwellwert. Wartung kann planbar in den nächsten 14 Tagen erfolgen."
     else:
         banner_cls = "ok"
-        status_icon = "✅"
-        title = f"FAHRZEUG IM NORMALBETRIEB"
+        title = "FAHRZEUG IM NORMALBETRIEB"
         text = f"Alle Sensorwerte im erwarteten Bereich. Nächste turnusgemäße Wartung in {truck['rul_hours']:,} h.".replace(",", ".")
 
     st.markdown(f"""<div class="reco-banner {banner_cls}">
         <div class="reco-rul">RUL: {truck['rul_hours']:,} h</div>
-        <div class="reco-title">{status_badge(truck['status'])} &nbsp; {title}</div>
+        <div class="reco-title">{status_badge(truck["status"])} &nbsp; {title}</div>
         <div class="reco-text">{text}</div>
     </div>
     """.replace(",", "."), unsafe_allow_html=True)
@@ -601,22 +677,21 @@ def render_truck_detail():
     left, right = st.columns([1, 1.3])
 
     with left:
-        st.markdown('<div class="section-title"><span class="section-icon">📊</span> Sensordaten · aktuell</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Sensordaten</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-sub">LIVE-WERTE AUS LETZTER BATCH-INFERENZ</div>', unsafe_allow_html=True)
 
         sensors = [
-            ("🌡️", "Motortemperatur", truck["motor_temp_c"], 110, "°C", "#FF3D4C" if truck["motor_temp_c"] > 95 else "#32C759"),
-            ("⛽", "Öldruck",         truck["oil_pressure_bar"], 5.0, "bar", "#FFA500" if truck["oil_pressure_bar"] < 2.5 else "#32C759"),
-            ("🛑", "Bremsflüssigkeit", truck["brake_fluid_pct"], 100, "%",
+            ("Motortemperatur", truck["motor_temp_c"], 110, "°C", "#FF3D4C" if truck["motor_temp_c"] > 95 else "#32C759"),
+            ("Öldruck",         truck["oil_pressure_bar"], 5.0, "bar", "#FFA500" if truck["oil_pressure_bar"] < 2.5 else "#32C759"),
+            ("Bremsflüssigkeit", truck["brake_fluid_pct"], 100, "%",
                 "#FF3D4C" if truck["brake_fluid_pct"] < 15 else ("#FFA500" if truck["brake_fluid_pct"] < 35 else "#32C759")),
-            ("🎯", "Reifendruck VL",  truck["tire_fl_bar"], 10, "bar", "#32C759"),
-            ("🎯", "Reifendruck VR",  truck["tire_fr_bar"], 10, "bar", "#32C759"),
+            ("Reifendruck VL",  truck["tire_fl_bar"], 10, "bar", "#32C759"),
+            ("Reifendruck VR",  truck["tire_fr_bar"], 10, "bar", "#32C759"),
         ]
-        for icon, label, val, max_val, unit, color in sensors:
+        for label, val, max_val, unit, color in sensors:
             pct = min(100, val / max_val * 100)
             st.markdown(f"""
             <div class="sensor-row">
-                <div class="sensor-icon">{icon}</div>
                 <div class="sensor-label">{label}</div>
                 <div class="sensor-bar-bg">
                     <div class="sensor-bar-fill" style="width: {pct}%; background: {color};"></div>
@@ -636,7 +711,7 @@ def render_truck_detail():
             st.metric("RUL-Prognose", f"{truck['rul_hours']:,} h".replace(",", "."))
 
     with right:
-        st.markdown('<div class="section-title"><span class="section-icon">📉</span> Bremsflüssigkeit · letzte 72 h</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Bremsflüssigkeit · letzte 72 h</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-sub">ZEITREIHEN-DEGRADATION · ISOLATION FOREST + XGBOOST</div>', unsafe_allow_html=True)
 
         ts_truck = timeseries[timeseries["lkw_id"] == truck_id].copy()
@@ -698,7 +773,7 @@ def render_truck_detail():
         st.caption(cap)
 
         # Motor temperature chart
-        st.markdown('<div class="section-title"><span class="section-icon">🌡️</span> Motortemperatur · letzte 72 h</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Motortemperatur · letzte 72 h</div>', unsafe_allow_html=True)
         chart2 = alt.Chart(ts_truck).mark_line(
             color="#1A1A1A", strokeWidth=2
         ).encode(
@@ -715,22 +790,33 @@ def render_truck_detail():
         st.altair_chart((chart2 + crit_temp).configure_view(strokeWidth=0), use_container_width=True)
 
     # Alert history for this truck
-    st.markdown('<div class="section-title"><span class="section-icon">🔔</span> Alert-Verlauf · ' + truck_id + '</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">Alert-Verlauf · {truck_id}</div>', unsafe_allow_html=True)
     truck_history = truck_alerts[truck_alerts["lkw_id"] == truck_id].sort_values("timestamp", ascending=False)
 
     if truck_history.empty:
         st.info("ℹ️ Keine Alerts für dieses Fahrzeug in den letzten 30 Tagen.")
     else:
         for _, alert in truck_history.iterrows():
-            alert_icon = {"KRITISCH": "🚨", "WARNUNG": "⚠️", "INFO": "ℹ️"}.get(alert["severity"], "•")
             st.markdown(f"""
-            <div class="alert-row" style="grid-template-columns: 30px 100px 92px minmax(0, 1fr); cursor: default;">
-                <div class="alert-icon">{alert_icon}</div>
+            <div class="alert-row" style="grid-template-columns: 100px 92px minmax(0, 1fr); cursor: default;">
                 <div class="alert-time">{alert['timestamp'].strftime('%d.%m. %H:%M')}</div>
                 <div>{status_badge(alert['severity'])}</div>
                 <div class="alert-message">{alert['message']}</div>
             </div>
             """, unsafe_allow_html=True)
+
+    if st.session_state.get("role") == "wl":
+        st.markdown('<div class="section-title" style="margin-top:1.5rem;">Wartungsfeedback</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">NACH ABSCHLUSS DER WARTUNG BITTE BESTÄTIGEN</div>', unsafe_allow_html=True)
+        col_a, col_b, _ = st.columns([1.4, 1.4, 4])
+        with col_a:
+            if st.button("Wartung bestätigt", key=f"fb_ok_{truck_id}", type="primary"):
+                save_feedback(truck_id, "bestätigt")
+                st.success(f"Feedback für {truck_id} gespeichert: Wartung bestätigt.")
+        with col_b:
+            if st.button("Fehlalarm", key=f"fb_fa_{truck_id}"):
+                save_feedback(truck_id, "Fehlalarm")
+                st.success(f"Feedback für {truck_id} gespeichert: Fehlalarm.")
 
 # ============================================================================
 # SCREEN 3: ALERT FEED
@@ -745,41 +831,29 @@ def render_alert_feed():
     st.markdown(f"""
     <div class="kpi-grid">
         <div class="kpi-card critical">
-            <div class="kpi-card-header">
-                <div class="kpi-card-icon">🚨</div>
-                <div class="kpi-label">Kritisch (7 Tage)</div>
-            </div>
+            <div class="kpi-label">Kritisch (7 Tage)</div>
             <div class="kpi-value">{n_crit}</div>
             <div class="kpi-sub">Sofortmaßnahme</div>
         </div>
         <div class="kpi-card warning">
-            <div class="kpi-card-header">
-                <div class="kpi-card-icon">⚠️</div>
-                <div class="kpi-label">Warnung (7 Tage)</div>
-            </div>
+            <div class="kpi-label">Warnung (7 Tage)</div>
             <div class="kpi-value">{n_warn}</div>
             <div class="kpi-sub">Wartung &lt; 14 Tage</div>
         </div>
         <div class="kpi-card">
-            <div class="kpi-card-header">
-                <div class="kpi-card-icon">ℹ️</div>
-                <div class="kpi-label">Info (7 Tage)</div>
-            </div>
+            <div class="kpi-label">Info (7 Tage)</div>
             <div class="kpi-value">{n_info}</div>
             <div class="kpi-sub">Anomalie erkannt</div>
         </div>
         <div class="kpi-card ok">
-            <div class="kpi-card-header">
-                <div class="kpi-card-icon">💰</div>
-                <div class="kpi-label">Vermiedene Kosten</div>
-            </div>
+            <div class="kpi-label">Vermiedene Kosten</div>
             <div class="kpi-value">{total_savings:,} €</div>
             <div class="kpi-sub">letzte 7 Tage · geschätzt</div>
         </div>
     </div>
     """.replace(",", "."), unsafe_allow_html=True)
 
-    st.markdown('<div class="section-title"><span class="section-icon">🔔</span> Alert-Feed</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Alert-Feed</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-sub">CHRONOLOGISCH · ALLE ML-AUSGABEN UND REGELBASIERTEN WARNUNGEN</div>', unsafe_allow_html=True)
 
     # Filter links use the same navigation path as the rest of the app.
@@ -802,12 +876,10 @@ def render_alert_feed():
     filtered = filtered.sort_values("timestamp", ascending=False)
 
     # Alert rows
-    for idx, (_, alert) in enumerate(filtered.iterrows()):
-        alert_icon = {"KRITISCH": "🚨", "WARNUNG": "⚠️", "INFO": "ℹ️"}.get(alert["severity"], "•")
+    for _, alert in filtered.iterrows():
         st.markdown(f"""
         <a class="row-link" href="{detail_href(alert['lkw_id'])}" target="_self">
-            <div class="alert-row">
-                <div class="alert-icon">{alert_icon}</div>
+            <div class="alert-row" style="grid-template-columns: 88px 86px 66px minmax(0,1fr) 78px;">
                 <div class="alert-time">{alert['timestamp'].strftime('%d.%m. %H:%M')}</div>
                 <div>{status_badge(alert['severity'])}</div>
                 <div class="alert-truck">{alert['lkw_id']}</div>
@@ -821,13 +893,52 @@ def render_alert_feed():
         """, unsafe_allow_html=True)
 
 # ============================================================================
+# SCREEN 0: ROLE SELECTION
+# ============================================================================
+def render_role_selection():
+    st.markdown("""
+<div class="role-screen">
+    <div class="role-screen-brand">PRE<span class="role-screen-brand-accent">MA</span></div>
+    <div class="role-screen-tagline">Predictive Maintenance · Spedition Müller GmbH</div>
+    <div class="role-screen-heading">Wer bist du?</div>
+    <div class="role-grid">
+        <a class="role-card" href="?role=fm&view=fleet" target="_self">
+            <div class="role-card-type">Flottenmanager</div>
+            <div class="role-card-name">Thomas Müller</div>
+            <ul class="role-card-features">
+                <li>Flottenübersicht &amp; Statusampel</li>
+                <li>Alert-Feed aller Fahrzeuge</li>
+                <li>Kosteneinsparungs-Kalkulation</li>
+                <li>Einzelfahrzeug-Detailansicht</li>
+            </ul>
+            <div class="role-card-cta">Weiter →</div>
+        </a>
+        <a class="role-card" href="?role=wl&view=fleet" target="_self">
+            <div class="role-card-type">Werkstattleiter</div>
+            <div class="role-card-name">Stefan Berger</div>
+            <ul class="role-card-features">
+                <li>Priorisierte Wartungsliste</li>
+                <li>RUL-Prognose je Fahrzeug</li>
+                <li>Wartungsfeedback erfassen</li>
+                <li>Einzelfahrzeug-Detailansicht</li>
+            </ul>
+            <div class="role-card-cta">Weiter →</div>
+        </a>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ============================================================================
 # Router
 # ============================================================================
-if st.session_state.view == "fleet":
+if not st.session_state.role:
+    render_role_selection()
+elif st.session_state.view == "fleet":
     render_fleet_overview()
 elif st.session_state.view == "detail":
     render_truck_detail()
-elif st.session_state.view == "alerts":
+elif st.session_state.view == "alerts" and st.session_state.role == "fm":
     render_alert_feed()
 
 # Footer
