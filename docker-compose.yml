@@ -1,0 +1,18 @@
+services:
+  streamlit-app:
+    build: .
+    image: tracking/streamlit-app:latest
+    container_name: tracking-streamlit
+    ports:
+      - "8501:8501"
+    volumes:
+      # Persistente Outputs (Charts, Modelle, Reports) auf den Host mounten,
+      # damit sie ueber Container-Neustarts erhalten bleiben.
+      - ./pipeline/outputs:/app/pipeline/outputs
+      - ./pipeline/data:/app/pipeline/data
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+    restart: unless-stopped

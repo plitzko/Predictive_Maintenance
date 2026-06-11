@@ -1,0 +1,25 @@
+# Virtuelle Umgebung
+.venv/
+venv/
+
+# Python-Cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Secrets & lokale Konfiguration
+.streamlit/secrets.toml
+.env
+.DS_Store
+
+# Generierte Pipeline-Dateien (mit: python pipeline/scripts/13→17→12 neu erzeugen)
+pipeline/data/engine_health/engine_data_simulated.csv
+pipeline/data/engine_health/engine_data_features.csv
+pipeline/data/engine_health/engine_data_with_rul.csv
+pipeline/outputs/models/
+
+# Generierte Dashboard-CSVs (werden beim App-Start automatisch erzeugt)
+data/fleet.csv
+data/timeseries.csv
+data/alerts.csv
+data/truck_alerts.csv
