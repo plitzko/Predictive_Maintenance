@@ -23,3 +23,7 @@ data/fleet.csv
 data/timeseries.csv
 data/alerts.csv
 data/truck_alerts.csv
+
+# Generierte Pipeline-Outputs (Charts und Logs)
+pipeline/outputs/charts/
+pipeline/outputs/*.txt
