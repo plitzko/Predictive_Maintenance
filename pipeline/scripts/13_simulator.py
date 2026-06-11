@@ -35,7 +35,12 @@ RNG_SEED = 42
 N_TRUCKS = 10
 N_DAYS = 90
 MEASUREMENTS_PER_DAY = 48
-START_TS = pd.Timestamp("2024-01-01 00:00:00")
+# Startdatum so waehlen, dass der Snapshot-Tag des Dashboard-Adapters
+# (_SNAPSHOT_DAY = 49 in data/generate_from_tracking.py) auf das
+# Generierungsdatum faellt: Wetter und Saison im Dashboard passen dann
+# zur realen Jahreszeit (kein Schneefall-Alert im Juni).
+SNAPSHOT_DAY = 49
+START_TS = pd.Timestamp.now().normalize() - pd.Timedelta(days=SNAPSHOT_DAY)
 
 SENSOR_COLS = [
     "Engine rpm",
@@ -166,9 +171,11 @@ def load_sensor_profiles(input_path: Path) -> tuple[pd.DataFrame, dict[str, pd.S
 
 def generate_weather(rng: np.random.Generator) -> pd.DataFrame:
     dates = pd.date_range(START_TS.date(), periods=N_DAYS, freq="D")
-    day_offsets = np.arange(N_DAYS)
 
-    temp_base = 12.5 - 12.5 * np.cos(2 * np.pi * (day_offsets - 15) / 365)
+    # Saisonkurve ueber den Tag im Jahr (Minimum Mitte Januar, Maximum Mitte
+    # Juli), damit sie unabhaengig vom Startdatum der Simulation stimmt.
+    day_of_year = dates.dayofyear.to_numpy()
+    temp_base = 12.5 - 12.5 * np.cos(2 * np.pi * (day_of_year - 15) / 365)
     temperature = np.clip(temp_base + rng.normal(0, 3, size=N_DAYS), -15, 38)
 
     has_rain = rng.random(N_DAYS) < 0.20

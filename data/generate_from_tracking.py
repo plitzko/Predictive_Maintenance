@@ -9,6 +9,8 @@ Dashboard erwartet:
     timeseries.csv    Sensor-Zeitreihen der letzten 72 h je LKW
     alerts.csv        Alert-Feed der letzten 7 Tage (Ereignisse, dedupliziert)
     truck_alerts.csv  Alert-Historie der letzten 30 Tage je LKW
+    replay.csv        Zukunfts-Messungen nach dem Snapshot (Live-Demo-Modus)
+    replay_alerts.csv Alert-Ereignisse im Replay-Zeitraum (Live-Demo-Modus)
     metrics.json      ML-Metriken aus den Pipeline-Reports (falls vorhanden)
 
 Alert-Logik: Ein Alert wird nur bei einem Severity-Wechsel je LKW erzeugt
@@ -60,8 +62,9 @@ _SNAPSHOT_DAY = 49
 _SNAPSHOT_STEPS = _SNAPSHOT_DAY * 48
 
 # Isolation-Forest-Anomalie: |z| oberhalb dieser Schwelle bei Status OK
-# erzeugt einen INFO-Alert (99%-Quantil der OK-Zeilen liegt bei ~3.2).
-_ANOMALY_Z_INFO = 2.5
+# erzeugt einen INFO-Alert. 3.2 = empirisches 99%-Quantil der OK-Zeilen,
+# d.h. nur das ungewoehnlichste 1 % der Normalmessungen gilt als Anomalie.
+_ANOMALY_Z_INFO = 3.2
 
 # Re-Arm-Sperre: gleicher LKW + gleiche Severity fruehestens nach 6 h erneut.
 _ALERT_REARM = pd.Timedelta(hours=6)
@@ -221,13 +224,19 @@ def main() -> None:
     has_rul_predicted   = "rul_predicted" in src.columns
     has_weather         = "temperature_c" in src.columns
 
-    # Snapshot-Fenster: nur erste _SNAPSHOT_STEPS Zeilen pro LKW verwenden.
+    # Snapshot-Grenze: Tag _SNAPSHOT_DAY ist "jetzt". Zeilen danach werden
+    # nicht verworfen, sondern speisen den Live-Replay-Modus des Dashboards
+    # (replay.csv / replay_alerts.csv).
     if has_health_score:
-        src = src.groupby("truck_id").head(_SNAPSHOT_STEPS).reset_index(drop=True)
+        snap_mask = src.groupby("truck_id").cumcount() < _SNAPSHOT_STEPS
+    else:
+        snap_mask = pd.Series(True, index=src.index)
 
-    # Timestamps relativ zu jetzt verschieben (letzter Datenpunkt = jetzt)
-    delta = pd.Timestamp.now().floor("30min") - src["timestamp"].max()
+    # Timestamps relativ zu jetzt verschieben (letzter Snapshot-Datenpunkt
+    # = jetzt; alles danach liegt bewusst in der Zukunft).
+    delta = pd.Timestamp.now().floor("30min") - src.loc[snap_mask, "timestamp"].max()
     src["timestamp"] = src["timestamp"] + delta
+    now_anchor = src.loc[snap_mask, "timestamp"].max()
 
     rng = np.random.default_rng(42)
 
@@ -291,8 +300,9 @@ def main() -> None:
         "oil_pressure_bar", "tire_fl_bar", "tire_fr_bar", "rul_hours",
         "km_total", "load_pct",
     ]
+    snap = src[snap_mask]
     fleet_rows = []
-    for _, grp in src.groupby("truck_id"):
+    for _, grp in snap.groupby("truck_id"):
         recent = grp.tail(48)
         last_row = grp.iloc[-1].copy()
         if has_health_score:
@@ -306,7 +316,7 @@ def main() -> None:
     pd.DataFrame(fleet_rows).to_csv(OUTPUT_DIR / "fleet.csv", index=False)
 
     # -- timeseries.csv: letzte 144 Schritte je LKW = 72 h --------------------
-    ts_rows = src.groupby("truck_id", group_keys=False).tail(144)
+    ts_rows = snap.groupby("truck_id", group_keys=False).tail(144)
     ts_rows[["lkw_id", "timestamp", "brake_fluid_pct", "motor_temp_c", "oil_pressure_bar"]].to_csv(
         OUTPUT_DIR / "timeseries.csv", index=False
     )
@@ -359,19 +369,44 @@ def main() -> None:
         "dtc_code", "recommendation", "temperature_c", "weather", "load_pct", "route_type",
     ]
 
-    # alerts.csv: Feed der letzten 7 Tage
-    cutoff_7d = src["timestamp"].max() - pd.Timedelta(days=7)
-    feed = events[events["timestamp"] >= cutoff_7d]
+    # alerts.csv: Feed der letzten 7 Tage (nur bis zum Snapshot-Zeitpunkt)
+    cutoff_7d = now_anchor - pd.Timedelta(days=7)
+    feed = events[(events["timestamp"] >= cutoff_7d) & (events["timestamp"] <= now_anchor)]
     feed.sort_values("timestamp", ascending=False)[ALERT_COLS].head(120).to_csv(
         OUTPUT_DIR / "alerts.csv", index=False
     )
 
     # truck_alerts.csv: Historie der letzten 30 Tage je LKW (fuer Detail-View)
-    cutoff_30d = src["timestamp"].max() - pd.Timedelta(days=30)
-    history = events[events["timestamp"] >= cutoff_30d]
+    cutoff_30d = now_anchor - pd.Timedelta(days=30)
+    history = events[(events["timestamp"] >= cutoff_30d) & (events["timestamp"] <= now_anchor)]
     history.sort_values("timestamp", ascending=False)[
         ["timestamp", "lkw_id", "severity", "message", "dtc_code", "recommendation"]
     ].head(400).to_csv(OUTPUT_DIR / "truck_alerts.csv", index=False)
+
+    # -- Replay-Daten: Messungen nach dem Snapshot fuer den Live-Demo-Modus ---
+    # Status und RUL werden wie in fleet.csv ueber 24 h (48 Schritte) geglaettet,
+    # damit der Replay nahtlos am statischen Snapshot ansetzt.
+    REPLAY_COLS = ["lkw_id", "timestamp", "status", "brake_fluid_pct",
+                   "motor_temp_c", "oil_pressure_bar", "rul_hours"]
+    future = src[~snap_mask]
+    if has_health_score and not future.empty:
+        roll_health = (src.groupby("truck_id")["health_score"]
+                       .rolling(48, min_periods=1).median()
+                       .reset_index(level=0, drop=True))
+        roll_rul = (src.groupby("truck_id")["rul_hours"]
+                    .rolling(48, min_periods=1).median()
+                    .reset_index(level=0, drop=True))
+        replay = future[["lkw_id", "timestamp", "brake_fluid_pct",
+                         "motor_temp_c", "oil_pressure_bar"]].copy()
+        replay["status"] = roll_health.loc[future.index].map(_classify_status_hs)
+        replay["rul_hours"] = roll_rul.loc[future.index].round(0).astype(int)
+        replay[REPLAY_COLS].to_csv(OUTPUT_DIR / "replay.csv", index=False)
+        events[events["timestamp"] > now_anchor].sort_values("timestamp")[ALERT_COLS].to_csv(
+            OUTPUT_DIR / "replay_alerts.csv", index=False
+        )
+    else:
+        pd.DataFrame(columns=REPLAY_COLS).to_csv(OUTPUT_DIR / "replay.csv", index=False)
+        pd.DataFrame(columns=ALERT_COLS).to_csv(OUTPUT_DIR / "replay_alerts.csv", index=False)
 
     # -- metrics.json: ML-Guete aus den Pipeline-Reports (FA-6) ---------------
     metrics = _parse_report_metrics()
@@ -379,7 +414,8 @@ def main() -> None:
         "source_file": src_path.name,
         "snapshot_day": _SNAPSHOT_DAY if has_health_score else None,
         "n_trucks": int(src["truck_id"].nunique()),
-        "n_rows": int(len(src)),
+        "n_rows": int(snap_mask.sum()),
+        "n_replay_rows": int((~snap_mask).sum()),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     })
     (OUTPUT_DIR / "metrics.json").write_text(

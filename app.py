@@ -16,7 +16,7 @@ Ohne secrets.toml läuft das Dashboard im offenen Demo-Modus.
 """
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
@@ -27,12 +27,23 @@ import streamlit as st
 # ============================================================================
 # Konstanten (Schwellenwerte & Kostenmodell, vgl. Pflichtenheft FA-5/FA-7)
 # ============================================================================
-BRAKE_WARN_PCT = 30      # Warnschwelle Bremsflüssigkeit (%)
-BRAKE_CRIT_PCT = 15      # Kritische Schwelle Bremsflüssigkeit (%)
+# Bremsflüssigkeit wird im Adapter aus dem Health-Score skaliert
+# (brake = health*90+5): health 0.7 -> 68 %, health 0.5 -> 50 %.
+# Die Schwellen entsprechen damit exakt den Statusgrenzen WARNUNG/KRITISCH.
+BRAKE_WARN_PCT = 68      # Warnschwelle Bremsflüssigkeit (%)
+BRAKE_CRIT_PCT = 50      # Kritische Schwelle Bremsflüssigkeit (%)
 MOTOR_TEMP_CRIT_C = 95   # Kritische Motortemperatur (°C)
 OIL_PRESSURE_WARN_BAR = 2.5  # Warnschwelle Öldruck (bar)
 COST_PER_HOUR_EUR = 600  # Kosten pro Stillstandsstunde (Pflichtenheft: 500-700 €)
 HOURS_PER_BREAKDOWN = 4  # Angenommene Standzeit pro vermiedener Panne
+
+FORECAST_HORIZON_H = 14 * 24   # RUL-Prognoselinie: max. 14 Tage in die Zukunft
+REPLAY_TICK_SECONDS = 2.0      # Live-Demo: reale Sekunden pro Schritt
+REPLAY_HOURS_PER_TICK = 12     # Live-Demo: simulierte Stunden pro Schritt
+PLANNER_SAFETY = 0.8           # Wartungsplaner: Termin bei 80 % der Restlaufzeit
+
+WEEKDAYS_DE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag",
+               "Freitag", "Samstag", "Sonntag"]
 
 SEVERITIES = ("KRITISCH", "WARNUNG", "INFO")
 ALERT_FILTERS = ("ALLE",) + SEVERITIES
@@ -138,6 +149,23 @@ st.markdown("""
         background: var(--p-accent); color: #FFF;
     }
     .nav-button.active .nav-count { background: rgba(255,255,255,0.25); }
+    /* Live-Demo: rechtsbündiger Pill in der Navigation */
+    .nav-button.demo {
+        margin-left: auto;
+        background: transparent; color: var(--p-accent);
+        border: 1px solid var(--p-accent);
+        font-size: 0.78rem; letter-spacing: 0.06em; font-weight: 700;
+    }
+    .nav-button.demo:hover {
+        background: var(--p-accent); color: #FFF;
+        box-shadow: 0 4px 12px var(--p-glow);
+    }
+    .nav-button.demo.running {
+        background: var(--p-accent); color: #FFF; border-color: var(--p-accent);
+        box-shadow: 0 4px 12px var(--p-glow);
+    }
+    .nav-button.demo.running .replay-dot { background: #FFF; }
+    .nav-button.demo .demo-glyph { font-size: 0.66rem; }
 
     /* ── KPI-Cards ── */
     .kpi-grid {
@@ -154,8 +182,12 @@ st.markdown("""
         transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
     .kpi-card:hover { box-shadow: var(--p-shadow-hover); transform: translateY(-2px); }
-    .kpi-card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.3rem; }
-    .kpi-card-icon { font-size: 1.2rem; }
+    .kpi-card-header { display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.35rem; }
+    .kpi-card-icon { display: inline-flex; width: 15px; height: 15px; color: var(--text-color); opacity: 0.55; flex: none; }
+    .kpi-card-icon svg { width: 100%; height: 100%; }
+    .kpi-card.critical .kpi-card-icon { color: var(--p-accent); opacity: 1; }
+    .kpi-card.warning  .kpi-card-icon { color: var(--p-warn);   opacity: 1; }
+    .kpi-card.ok       .kpi-card-icon { color: var(--p-ok);     opacity: 1; }
     .kpi-card.critical {
         border-left-color: var(--p-accent);
         background: color-mix(in srgb, #FF3D4C 6%, var(--background-color));
@@ -422,6 +454,79 @@ st.markdown("""
         color: var(--p-accent); letter-spacing: 0.04em;
     }
 
+    /* ── Login-Karte (st.form gibt es nur auf der Login-Seite) ── */
+    [data-testid="stForm"] {
+        background: var(--background-color);
+        border: 1px solid var(--p-border);
+        border-radius: 10px;
+        padding: 1.5rem 1.5rem 1.1rem;
+        box-shadow: var(--p-shadow);
+    }
+
+    /* ── Mikro-Animationen & Akzente ── */
+    @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(4px); }
+        to   { opacity: 1; transform: none; }
+    }
+    .kpi-card, .reco-banner, .role-card { animation: fadeUp 0.3s ease both; }
+    .truck-table-row, .alert-row { animation: fadeUp 0.25s ease both; }
+
+    .feed-day {
+        font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em;
+        text-transform: uppercase; color: var(--text-color); opacity: 0.45;
+        margin: 0.9rem 0 0.35rem 0.2rem;
+        font-family: 'Plus Jakarta Sans','Inter',sans-serif;
+    }
+
+    /* ── Live-Demo-Leiste ── */
+    .replay-bar {
+        display: flex; align-items: center; gap: 0.7rem;
+        padding: 0.45rem 0.8rem; margin-bottom: 0.6rem;
+        border: 1px solid var(--p-accent); border-radius: 6px;
+        background: color-mix(in srgb, #FF3D4C 6%, var(--background-color));
+        font-family: 'Inter',monospace; font-size: 0.78rem;
+        color: var(--text-color);
+    }
+    .replay-dot {
+        width: 9px; height: 9px; border-radius: 50%; flex: none;
+        background: var(--p-accent); animation: replayPulse 1.2s ease infinite;
+    }
+    @keyframes replayPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+    .replay-time { font-weight: 700; }
+    .replay-progress {
+        flex: 1; height: 4px; border-radius: 2px;
+        background: var(--secondary-background-color); overflow: hidden;
+    }
+    .replay-progress-fill { height: 100%; background: var(--p-accent); }
+    .replay-stop {
+        flex: none; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.05em;
+        color: var(--p-accent) !important; text-decoration: none !important;
+        border: 1px solid var(--p-accent); border-radius: 4px;
+        padding: 0.18rem 0.55rem; transition: all 0.15s ease;
+        font-family: 'Plus Jakarta Sans','Inter',sans-serif;
+    }
+    .replay-stop:hover { background: var(--p-accent); color: #FFF !important; }
+
+    /* ── Wartungsplaner ── */
+    .plan-row {
+        display: grid;
+        grid-template-columns: 26px 86px 86px minmax(110px,0.8fr) minmax(160px,1.6fr) 96px;
+        gap: 0.65rem; align-items: center; padding: 0.55rem 0.8rem;
+        border-bottom: 1px solid var(--p-border); border-radius: 4px;
+        margin-bottom: 0.3rem; font-size: 0.82rem; color: var(--text-color);
+        transition: background 0.15s; cursor: pointer;
+        animation: fadeUp 0.25s ease both;
+    }
+    .plan-row:hover { background: var(--secondary-background-color); }
+    .plan-pos {
+        font-family: 'Inter',monospace; font-weight: 700;
+        color: var(--text-color); opacity: 0.45;
+    }
+    .plan-deadline { font-weight: 700; font-family: 'Inter',monospace; }
+    .plan-deadline.now { color: var(--p-accent); }
+    .plan-reco { font-size: 0.74rem; opacity: 0.7; min-width: 0; overflow-wrap: anywhere; }
+    .plan-rul { text-align: right; font-family: 'Inter',monospace; opacity: 0.7; }
+
     /* ── Responsive: schmale Viewports ── */
     @media (max-width: 760px) {
         .role-grid { grid-template-columns: 1fr; }
@@ -442,6 +547,31 @@ def fmt_de(value) -> str:
         return f"{int(round(float(value))):,}".replace(",", ".")
     except (TypeError, ValueError):
         return str(value)
+
+
+_ICON_PATHS = {
+    # Feather Icons (MIT) – monochrome Linien-Symbole, erben currentColor
+    "truck": '<path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/>'
+             '<circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+    "check-circle": '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>'
+                    '<polyline points="22 4 12 14.01 9 11.01"/>',
+    "alert-triangle": '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 '
+                      '1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>'
+                      '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    "alert-octagon": '<polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/>'
+                     '<line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+    "wrench": '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1'
+              '-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+    "info": '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/>'
+            '<line x1="12" y1="8" x2="12.01" y2="8"/>',
+    "shield": '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+}
+
+
+def icon(name: str) -> str:
+    """Inline-SVG-Symbol (Feather-Stil) für KPI-Karten."""
+    return ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+            f'stroke-linecap="round" stroke-linejoin="round">{_ICON_PATHS[name]}</svg>')
 
 
 def status_badge(status):
@@ -483,6 +613,14 @@ def alerts_href(filter_severity):
     return f"?view=alerts&filter={quote(str(filter_severity))}{_role_param()}"
 
 
+def plan_href():
+    return f"?view=plan{_role_param()}"
+
+
+def demo_href():
+    return f"?view=fleet&demo=1{_role_param()}"
+
+
 # ============================================================================
 # Data loading
 # ============================================================================
@@ -515,12 +653,24 @@ def load_data():
     required = ["fleet.csv", "timeseries.csv", "alerts.csv", "truck_alerts.csv"]
     missing = [f for f in required if not (base / f).exists()]
     if missing:
-        return None, None, None, None, None, sync_error, missing
+        return None, None, None, None, None, None, None, sync_error, missing
 
     fleet = pd.read_csv(base / "fleet.csv")
     timeseries = pd.read_csv(base / "timeseries.csv", parse_dates=["timestamp"])
     alerts = pd.read_csv(base / "alerts.csv", parse_dates=["timestamp"])
     truck_alerts = pd.read_csv(base / "truck_alerts.csv", parse_dates=["timestamp"])
+
+    # Replay-Daten (Live-Demo-Modus) sind optional: ohne sie läuft die App
+    # unverändert, nur der Demo-Schalter fehlt.
+    replay = pd.DataFrame()
+    replay_alerts = pd.DataFrame()
+    try:
+        if (base / "replay.csv").exists():
+            replay = pd.read_csv(base / "replay.csv", parse_dates=["timestamp"])
+        if (base / "replay_alerts.csv").exists():
+            replay_alerts = pd.read_csv(base / "replay_alerts.csv", parse_dates=["timestamp"])
+    except (ValueError, OSError):
+        replay, replay_alerts = pd.DataFrame(), pd.DataFrame()
 
     metrics = {}
     metrics_path = base / "metrics.json"
@@ -530,10 +680,11 @@ def load_data():
         except (json.JSONDecodeError, OSError):
             metrics = {}
 
-    return fleet, timeseries, alerts, truck_alerts, metrics, sync_error, []
+    return fleet, timeseries, alerts, truck_alerts, replay, replay_alerts, metrics, sync_error, []
 
 
-fleet, timeseries, alerts, truck_alerts, ml_metrics, _sync_error, _missing = load_data()
+(fleet, timeseries, alerts, truck_alerts, replay, replay_alerts,
+ ml_metrics, _sync_error, _missing) = load_data()
 
 if _missing:
     st.error(
@@ -604,14 +755,20 @@ elif query_view == "alerts":
     st.session_state.view = "alerts"
     qf = st.query_params.get("filter", "ALLE")
     st.session_state.alert_filter = qf if qf in ALERT_FILTERS else "ALLE"
+elif query_view == "plan":
+    st.session_state.view = "plan"
+    st.session_state.selected_truck = None
 elif query_view == "detail":
     query_truck = st.query_params.get("truck")
     if query_truck in KNOWN_TRUCKS:
         st.session_state.view = "detail"
         st.session_state.selected_truck = query_truck
 
-# Werkstattleiter hat keinen Alert-Feed: auf Wartungsliste umleiten
+# Rollen-Guards: Werkstattleiter hat keinen Alert-Feed, Flottenmanager
+# keinen Wartungsplan – jeweils auf die Flottenübersicht umleiten.
 if st.session_state.role == "wl" and st.session_state.view == "alerts":
+    st.session_state.view = "fleet"
+if st.session_state.role == "fm" and st.session_state.view == "plan":
     st.session_state.view = "fleet"
 
 # ============================================================================
@@ -631,7 +788,7 @@ st.markdown(f"""
 <div class="header-bar">
     <div class="header-brand">
         <span>PRE<span class="header-brand-accent">MA</span></span>
-    </div>
+</div>
     <div class="header-user" style="font-size:0.75rem;opacity:0.7;">
         {_h_user}{_switch_link}
     </div>
@@ -641,15 +798,30 @@ st.markdown(f"""
 if st.session_state.role:
     n_crit_alerts = int((alerts["severity"] == "KRITISCH").sum())
     _fnc = "nav-button active" if st.session_state.view == "fleet" else "nav-button inactive"
-    _fleet_label = "FLOTTE" if st.session_state.role == "fm" else "WARTUNG"
-    _nav_html = f'<div class="nav-buttons"><a class="{_fnc}" href="{fleet_href()}" target="_self">{_fleet_label}</a>'
+    _nav_html = f'<div class="nav-buttons"><a class="{_fnc}" href="{fleet_href()}" target="_self">FLOTTE</a>'
     if st.session_state.role == "fm":
         _anc = "nav-button active" if st.session_state.view == "alerts" else "nav-button inactive"
         _alerts_label = (f'ALERTS <span class="nav-count">{n_crit_alerts}</span>'
                          if n_crit_alerts else "ALERTS")
         _nav_html += f'<a class="{_anc}" href="{alerts_href("ALLE")}" target="_self">{_alerts_label}</a>'
+    if st.session_state.role == "wl":
+        _pnc = "nav-button active" if st.session_state.view == "plan" else "nav-button inactive"
+        n_due = int(fleet["status"].isin(("KRITISCH", "WARNUNG")).sum())
+        _plan_label = (f'WARTUNGSPLAN <span class="nav-count">{n_due}</span>'
+                       if n_due else "WARTUNGSPLAN")
+        _nav_html += f'<a class="{_pnc}" href="{plan_href()}" target="_self">{_plan_label}</a>'
     if st.session_state.view == "detail" and st.session_state.selected_truck:
         _nav_html += f'<span class="nav-button detail">{st.session_state.selected_truck}</span>'
+    # Live-Demo: rechtsbündiger Pill, nur auf der Flottenansicht und wenn
+    # der Adapter Replay-Daten erzeugt hat. Läuft über den Query-Parameter
+    # ?demo=1, damit Start/Stopp wie die restliche Navigation funktioniert.
+    if st.session_state.view == "fleet" and replay is not None and not replay.empty:
+        if st.query_params.get("demo") == "1":
+            _nav_html += (f'<a class="nav-button demo running" href="{fleet_href()}" target="_self">'
+                          f'<span class="replay-dot"></span>DEMO BEENDEN</a>')
+        else:
+            _nav_html += (f'<a class="nav-button demo" href="{demo_href()}" target="_self">'
+                          f'<span class="demo-glyph">▶</span>LIVE-DEMO</a>')
     _nav_html += '</div>'
     st.markdown(_nav_html, unsafe_allow_html=True)
 
@@ -705,25 +877,24 @@ def render_ml_metrics():
 # ============================================================================
 # SCREEN 1: FLEET OVERVIEW
 # ============================================================================
-def render_fleet_overview():
-    n_total = len(fleet)
-    if n_total == 0:
-        st.info("Keine Fahrzeugdaten vorhanden.")
-        return
-    n_ok = int((fleet["status"] == "OK").sum())
-    n_warn = int((fleet["status"] == "WARNUNG").sum())
-    n_crit = int((fleet["status"] == "KRITISCH").sum())
+def _overview_kpis(fdf):
+    """KPI-Karten aus einem Flotten-Snapshot (statisch oder Replay-Stand)."""
+    n_total = len(fdf)
+    n_ok = int((fdf["status"] == "OK").sum())
+    n_warn = int((fdf["status"] == "WARNUNG").sum())
+    n_crit = int((fdf["status"] == "KRITISCH").sum())
     avoided_eur = n_crit * COST_PER_HOUR_EUR * HOURS_PER_BREAKDOWN
-    avg_rul = int(fleet["rul_hours"].mean())
+    avg_rul = int(fdf["rul_hours"].mean())
 
     # KPI-Karten 3 und 4 sind rollenspezifisch: nur der Flottenmanager hat
     # einen Alert-Feed, daher verlinken die Karten nur bei ihm dorthin;
     # der Werkstattleiter sieht statt der Kosten-KPI die Ø-Restlaufzeit.
     # Hinweis: keine Zeilen-Einrückung im HTML, sonst interpretiert Markdown
     # die Karten als Code-Block und das Grid verzieht sich.
-    def _card(cls, label, value, sub, href=None):
+    def _card(cls, icon_name, label, value, sub, href=None):
         card = (f'<div class="kpi-card {cls}">'
-                f'<div class="kpi-label">{label}</div>'
+                f'<div class="kpi-card-header"><span class="kpi-card-icon">{icon(icon_name)}</span>'
+                f'<div class="kpi-label">{label}</div></div>'
                 f'<div class="kpi-value">{value}</div>'
                 f'<div class="kpi-sub">{sub}</div></div>')
         if href:
@@ -732,43 +903,27 @@ def render_fleet_overview():
 
     is_wl = st.session_state.get("role") == "wl"
     cards = [
-        _card("", "Fahrzeuge gesamt", n_total, "aktive Flotte"),
-        _card("ok", "Status OK", n_ok, f"{n_ok / n_total * 100:.0f}% der Flotte"),
-        _card("warning", "Warnung", n_warn, "Wartung in &lt; 14 Tagen",
+        _card("", "truck", "Fahrzeuge gesamt", n_total, "aktive Flotte"),
+        _card("ok", "check-circle", "Status OK", n_ok, f"{n_ok / n_total * 100:.0f}% der Flotte"),
+        _card("warning", "alert-triangle", "Warnung", n_warn, "Wartung in &lt; 14 Tagen",
               href=None if is_wl else alerts_href("WARNUNG")),
-        _card("", "Ø RUL Flotte", f"{fmt_de(avg_rul)} h", "Durchschn. Restlaufzeit")
+        _card("", "wrench", "Ø RUL Flotte", f"{fmt_de(avg_rul)} h", "Durchschn. Restlaufzeit")
         if is_wl else
-        _card("critical", "Kritisch", n_crit,
+        _card("critical", "alert-octagon", "Kritisch", n_crit,
               f"~ {fmt_de(avoided_eur)} EUR verhinderte Kosten",
               href=alerts_href("KRITISCH")),
     ]
     st.markdown(f'<div class="kpi-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
 
-    _title_text = "Wartungsübersicht" if st.session_state.get("role") == "wl" else "Flottenstatus"
-    head_l, head_r = st.columns([5, 1], vertical_alignment="bottom")
-    with head_l:
-        st.markdown(f'<div class="section-title">{_title_text}</div>', unsafe_allow_html=True)
-        st.markdown(
-            f'<div class="section-sub">SORTIERT NACH PRIORITÄT · BATCH-PIPELINE · '
-            f'STAND {datetime.now().strftime("%H:%M")} UHR</div>',
-            unsafe_allow_html=True,
-        )
 
+def _overview_table(fdf):
+    """Flotten-Tabelle; gibt die sortierte Flotte zurück."""
     # Sort: critical first, then warning, then OK; innerhalb gleicher Stufe
     # entscheidet die kürzeste Restlaufzeit.
     status_order = {"KRITISCH": 0, "WARNUNG": 1, "OK": 2}
-    fleet_sorted = fleet.copy()
+    fleet_sorted = fdf.copy()
     fleet_sorted["sort_key"] = fleet_sorted["status"].map(status_order)
     fleet_sorted = fleet_sorted.sort_values(["sort_key", "rul_hours"]).drop(columns=["sort_key"])
-
-    with head_r:
-        st.download_button(
-            "⬇ CSV-Export",
-            data=fleet_sorted.to_csv(index=False).encode("utf-8-sig"),
-            file_name=f"prema_flotte_{datetime.now():%Y%m%d_%H%M}.csv",
-            mime="text/csv",
-            width="stretch",
-        )
 
     st.markdown("""
     <div class="truck-table-header">
@@ -802,6 +957,151 @@ def render_fleet_overview():
             </div>
         </a>
         """, unsafe_allow_html=True)
+    return fleet_sorted
+
+
+def render_maintenance_plan():
+    """SCREEN (nur Werkstattleiter): priorisierte Terminliste aus Status + RUL.
+
+    Terminvorschlag = jetzt + PLANNER_SAFETY * RUL, d.h. die Wartung liegt
+    mit Sicherheitspuffer vor dem prognostizierten kritischen Zustand.
+    """
+    st.markdown('<div class="section-title">Wartungsplan</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="section-sub">TERMINVORSCHLAG = {PLANNER_SAFETY:.0%} DER '
+        f'PROGNOSTIZIERTEN RESTLAUFZEIT · PRIORISIERT NACH DRINGLICHKEIT</div>',
+        unsafe_allow_html=True,
+    )
+    status_order = {"KRITISCH": 0, "WARNUNG": 1, "OK": 2}
+    due = fleet[fleet["status"].isin(("KRITISCH", "WARNUNG"))].copy()
+    due["sort_key"] = due["status"].map(status_order)
+    due = due.sort_values(["sort_key", "rul_hours"]).drop(columns=["sort_key"])
+    if due.empty:
+        st.info("Keine Wartung fällig – alle Fahrzeuge im Normalbetrieb.")
+        return
+
+    # Konkrete Maßnahme aus dem letzten Alert des Fahrzeugs (DTC-Empfehlung)
+    last_reco = {}
+    if not truck_alerts.empty and "recommendation" in truck_alerts.columns:
+        last = truck_alerts.sort_values("timestamp").groupby("lkw_id").tail(1)
+        last_reco = dict(zip(last["lkw_id"], last["recommendation"]))
+
+    now = datetime.now()
+    for pos, (_, t) in enumerate(due.iterrows(), start=1):
+        slack_h = float(t["rul_hours"]) * PLANNER_SAFETY
+        deadline = now + timedelta(hours=slack_h)
+        if slack_h <= 24:
+            deadline_html = '<div class="plan-deadline now">SOFORT</div>'
+        else:
+            deadline_html = (f'<div class="plan-deadline">bis '
+                             f'{WEEKDAYS_DE[deadline.weekday()][:2]} {deadline:%d.%m.}</div>')
+        reco = last_reco.get(t["lkw_id"])
+        if not isinstance(reco, str) or not reco.strip():
+            reco = ("Fahrzeug aus dem Verkehr ziehen, Werkstatt sofort"
+                    if t["status"] == "KRITISCH" else "Wartungstermin einplanen")
+        st.markdown(f"""
+        <a class="row-link" href="{detail_href(t['lkw_id'])}" target="_self">
+            <div class="plan-row">
+                <div class="plan-pos">{pos}</div>
+                <div class="truck-id">{t['lkw_id']}</div>
+                <div>{status_badge(t['status'])}</div>
+                {deadline_html}
+                <div class="plan-reco">{reco}</div>
+                <div class="plan-rul">RUL {fmt_de(t['rul_hours'])} h</div>
+            </div>
+        </a>
+        """, unsafe_allow_html=True)
+
+
+def _render_replay():
+    """Live-Demo: spielt die simulierten Wochen nach dem Stichtag im Zeitraffer
+    ab (REPLAY_HOURS_PER_TICK Stunden pro Tick). Nutzt replay.csv aus dem
+    Adapter; Status/RUL sind dort wie in fleet.csv über 24 h geglättet."""
+    all_ts = replay["timestamp"].drop_duplicates().sort_values().tolist()
+    stride = max(REPLAY_HOURS_PER_TICK * 2, 1)  # 30-Minuten-Raster -> 2 Zeilen/h
+    steps = all_ts[stride - 1::stride]
+    if not steps or steps[-1] != all_ts[-1]:
+        steps.append(all_ts[-1])
+    start_ts = timeseries["timestamp"].max()
+
+    @st.fragment(run_every=REPLAY_TICK_SECONDS)
+    def _frame():
+        i = min(st.session_state.get("replay_idx", 0), len(steps) - 1)
+        ts = steps[i]
+        prev_ts = steps[i - 1] if i > 0 else start_ts
+        pct = (i + 1) / len(steps) * 100
+
+        st.markdown(f"""
+        <div class="replay-bar">
+            <span class="replay-dot"></span>
+            <span>LIVE-DEMO · ZEITRAFFER</span>
+            <span class="replay-time">{WEEKDAYS_DE[ts.weekday()][:2]} {ts:%d.%m.%Y · %H:%M} Uhr</span>
+            <div class="replay-progress"><div class="replay-progress-fill" style="width:{pct:.0f}%"></div></div>
+            <a class="replay-stop" href="{fleet_href()}" target="_self">■&nbsp;Beenden</a>
+        </div>
+        """, unsafe_allow_html=True)
+
+        cur = (replay[replay["timestamp"] <= ts]
+               .sort_values("timestamp").groupby("lkw_id").tail(1))
+        fdf = cur.merge(fleet[["lkw_id", "driver"]], on="lkw_id", how="left")
+        fdf["driver"] = fdf["driver"].fillna("n. n.")
+        _overview_kpis(fdf)
+        _overview_table(fdf)
+
+        # Neue Alert-Ereignisse seit dem letzten Tick als Toast einblenden
+        if not replay_alerts.empty:
+            fresh = replay_alerts[(replay_alerts["timestamp"] > prev_ts)
+                                  & (replay_alerts["timestamp"] <= ts)]
+            toast_icons = {"KRITISCH": "🚨", "WARNUNG": "⚠️", "INFO": "ℹ️"}
+            for ev in fresh.itertuples():
+                st.toast(f"{ev.severity} · {ev.lkw_id}: {ev.message}",
+                         icon=toast_icons.get(ev.severity, "ℹ️"))
+
+        if i < len(steps) - 1:
+            st.session_state.replay_idx = i + 1
+        else:
+            st.info("Ende der Simulation erreicht – »■ Beenden« führt zurück zur aktuellen Ansicht.")
+
+    _frame()
+
+
+def render_fleet_overview():
+    n_total = len(fleet)
+    if n_total == 0:
+        st.info("Keine Fahrzeugdaten vorhanden.")
+        return
+
+    # Live-Demo: gestartet/gestoppt über den Nav-Pill (?demo=1); replay_on
+    # bleibt als programmatischer Schalter für Tests erhalten.
+    replay_ready = replay is not None and not replay.empty
+    if replay_ready and (st.query_params.get("demo") == "1"
+                         or st.session_state.get("replay_on")):
+        _render_replay()
+        return
+    st.session_state.replay_idx = 0
+
+    _overview_kpis(fleet)
+
+    _title_text = "Flottenstatus"
+    head_l, head_r = st.columns([5, 1], vertical_alignment="bottom")
+    with head_l:
+        st.markdown(f'<div class="section-title">{_title_text}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="section-sub">SORTIERT NACH PRIORITÄT · BATCH-PIPELINE · '
+            f'STAND {datetime.now().strftime("%H:%M")} UHR</div>',
+            unsafe_allow_html=True,
+        )
+
+    fleet_sorted = _overview_table(fleet)
+
+    with head_r:
+        st.download_button(
+            "⬇ CSV-Export",
+            data=fleet_sorted.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"prema_flotte_{datetime.now():%Y%m%d_%H%M}.csv",
+            mime="text/csv",
+            width="stretch",
+        )
 
     render_ml_metrics()
 
@@ -926,14 +1226,29 @@ def render_truck_detail():
         if ts_truck.empty:
             st.info("Keine Zeitreihendaten für dieses Fahrzeug vorhanden.")
         else:
+            line_color = severity_color(truck["status"])
+            x_enc = alt.X("timestamp:T", title=None, axis=alt.Axis(format="%d.%m %H:%M", labelFontSize=10))
+            y_enc = alt.Y("brake_fluid_pct:Q", title="Bremsflüssigkeit (%)",
+                          scale=alt.Scale(domain=[0, 100]),
+                          axis=alt.Axis(labelFontSize=10, titleFontSize=11))
+
+            # Sanfte Verlaufsfläche unter der Linie
+            area = alt.Chart(ts_truck).mark_area(
+                color=alt.Gradient(
+                    gradient="linear",
+                    stops=[alt.GradientStop(color="transparent", offset=0),
+                           alt.GradientStop(color=line_color, offset=1)],
+                    x1=1, x2=1, y1=1, y2=0,
+                ),
+                opacity=0.18,
+            ).encode(x=x_enc, y=y_enc)
+
             chart = alt.Chart(ts_truck).mark_line(
-                color=severity_color(truck["status"]),
+                color=line_color,
                 strokeWidth=2.5
             ).encode(
-                x=alt.X("timestamp:T", title=None, axis=alt.Axis(format="%d.%m %H:%M", labelFontSize=10)),
-                y=alt.Y("brake_fluid_pct:Q", title="Bremsflüssigkeit (%)",
-                        scale=alt.Scale(domain=[0, 100]),
-                        axis=alt.Axis(labelFontSize=10, titleFontSize=11)),
+                x=x_enc,
+                y=y_enc,
                 tooltip=[
                     alt.Tooltip("timestamp:T", title="Zeit", format="%d.%m %H:%M"),
                     alt.Tooltip("brake_fluid_pct:Q", title="Bremse %", format=".1f"),
@@ -969,12 +1284,47 @@ def render_truck_detail():
                 for sev in SEVERITIES
                 if not alert_markers[alert_markers["severity"] == sev].empty
             ]
-            brake_chart = alt.layer(chart, warn_line, crit_line, *alert_layers)
+            # RUL-Prognose (FA-6): gestrichelte Linie vom letzten Messwert bis
+            # zur kritischen Schwelle am prognostizierten RUL-Zeitpunkt. Die
+            # Skalierung passt exakt: brake = health*90+5, RUL = Zeit bis
+            # health 0.5 = Zeit bis Bremse BRAKE_CRIT_PCT.
+            forecast_layers = []
+            forecast_note = None
+            rul_h = float(truck["rul_hours"])
+            if truck["status"] != "KRITISCH" and rul_h > 0:
+                t_last = ts_truck["timestamp"].max()
+                b_last = float(ts_truck.loc[ts_truck["timestamp"].idxmax(), "brake_fluid_pct"])
+                horizon_h = min(rul_h, FORECAST_HORIZON_H)
+                b_end = b_last + (BRAKE_CRIT_PCT - b_last) * horizon_h / rul_h
+                fc = pd.DataFrame({
+                    "timestamp": [t_last, t_last + pd.Timedelta(hours=horizon_h)],
+                    "brake_fluid_pct": [b_last, b_end],
+                })
+                forecast_layers.append(
+                    alt.Chart(fc).mark_line(
+                        strokeDash=[6, 4], strokeWidth=2, color=line_color, opacity=0.7
+                    ).encode(x="timestamp:T", y="brake_fluid_pct:Q")
+                )
+                if rul_h <= FORECAST_HORIZON_H:
+                    t_crit = t_last + pd.Timedelta(hours=rul_h)
+                    forecast_layers.append(
+                        alt.Chart(fc.tail(1)).mark_point(
+                            shape="diamond", size=80, filled=True, color=COLOR_CRIT
+                        ).encode(x="timestamp:T", y="brake_fluid_pct:Q")
+                    )
+                    forecast_note = f"voraussichtlich kritisch: {t_crit:%d.%m. %H:%M} Uhr"
+                else:
+                    forecast_note = "kritische Schwelle außerhalb des 14-Tage-Horizonts"
+
+            brake_chart = alt.layer(area, chart, warn_line, crit_line,
+                                    *alert_layers, *forecast_layers)
             st.altair_chart(brake_chart.configure_view(strokeWidth=0), width="stretch")
 
             cap = f"⎯⎯ Warnschwelle {BRAKE_WARN_PCT} % · ⎯⎯ Kritische Schwelle {BRAKE_CRIT_PCT} %"
             if not alert_markers.empty:
                 cap += " · ╌╌ Alert-Zeitpunkte"
+            if forecast_note:
+                cap += f" · ┄┄ RUL-Prognose (Random Forest), {forecast_note}"
             st.caption(cap)
 
             # Motor temperature chart
@@ -1028,7 +1378,7 @@ def render_truck_detail():
     truck_history = truck_alerts[truck_alerts["lkw_id"] == truck_id].sort_values("timestamp", ascending=False)
 
     if truck_history.empty:
-        st.info("ℹ️ Keine Alerts für dieses Fahrzeug in den letzten 30 Tagen.")
+        st.info("Keine Alerts für dieses Fahrzeug in den letzten 30 Tagen.")
     else:
         for _, alert in truck_history.iterrows():
             dtc = alert.get("dtc_code")
@@ -1077,22 +1427,26 @@ def render_alert_feed():
     st.markdown(f"""
     <div class="kpi-grid">
         <div class="kpi-card critical">
-            <div class="kpi-label">Kritisch (7 Tage)</div>
+            <div class="kpi-card-header"><span class="kpi-card-icon">{icon("alert-octagon")}</span>
+            <div class="kpi-label">Kritisch (7 Tage)</div></div>
             <div class="kpi-value">{n_crit}</div>
             <div class="kpi-sub">Sofortmaßnahme</div>
         </div>
         <div class="kpi-card warning">
-            <div class="kpi-label">Warnung (7 Tage)</div>
+            <div class="kpi-card-header"><span class="kpi-card-icon">{icon("alert-triangle")}</span>
+            <div class="kpi-label">Warnung (7 Tage)</div></div>
             <div class="kpi-value">{n_warn}</div>
             <div class="kpi-sub">Wartung &lt; 14 Tage</div>
         </div>
         <div class="kpi-card">
-            <div class="kpi-label">Info (7 Tage)</div>
+            <div class="kpi-card-header"><span class="kpi-card-icon">{icon("info")}</span>
+            <div class="kpi-label">Info (7 Tage)</div></div>
             <div class="kpi-value">{n_info}</div>
             <div class="kpi-sub">Anomalie erkannt · Isolation Forest</div>
         </div>
         <div class="kpi-card ok">
-            <div class="kpi-label">Vermiedene Kosten</div>
+            <div class="kpi-card-header"><span class="kpi-card-icon">{icon("shield")}</span>
+            <div class="kpi-label">Vermiedene Kosten</div></div>
             <div class="kpi-value">{fmt_de(total_savings)} €</div>
             <div class="kpi-sub">letzte 7 Tage · geschätzt</div>
         </div>
@@ -1139,7 +1493,18 @@ def render_alert_feed():
     MAX_ROWS = 100
     shown = filtered.head(MAX_ROWS)
 
+    today = datetime.now().date()
+    current_day = None
     for _, alert in shown.iterrows():
+        # Tages-Trenner: Feed bleibt chronologisch, wird aber gruppiert lesbar
+        alert_day = alert["timestamp"].date()
+        if alert_day != current_day:
+            current_day = alert_day
+            delta_days = (today - alert_day).days
+            day_label = ("Heute" if delta_days == 0 else
+                         "Gestern" if delta_days == 1 else
+                         f"{WEEKDAYS_DE[alert_day.weekday()]}, {alert['timestamp']:%d.%m.}")
+            st.markdown(f'<div class="feed-day">{day_label}</div>', unsafe_allow_html=True)
         # Kontext aus Pipeline-Anreicherung (FA-2): DTC, Wetter, Beladung
         meta_parts = [f"Quelle: {alert['source']}"]
         dtc = alert.get("dtc_code")
@@ -1227,16 +1592,25 @@ def render_role_selection():
 def render_login(role: str):
     """Passwort-Abfrage für eine Rolle mit konfiguriertem Secret (NFR Zugriffsschutz)."""
     label = _role_labels.get(role, role)
-    st.markdown(f"""
-<div class="role-screen" style="max-width:420px;">
-    <div class="role-screen-brand">PRE<span class="role-screen-brand-accent">MA</span></div>
-    <div class="role-screen-tagline">Anmeldung · {label}</div>
+    persona, _, role_name = label.partition(" · ")
+    st.markdown("""
+<div style="text-align:center; margin-top:3.5rem; margin-bottom:1.8rem;">
+    <div class="role-screen-brand" style="margin-bottom:0.25rem;">PRE<span class="role-screen-brand-accent">MA</span></div>
+    <div class="role-screen-tagline" style="margin-bottom:0;">Predictive Maintenance · Spedition Müller GmbH</div>
 </div>
 """, unsafe_allow_html=True)
-    _l, mid, _r = st.columns([1, 1.2, 1])
+    _l, mid, _r = st.columns([1.2, 1, 1.2])
     with mid:
         with st.form(key=f"login_{role}"):
-            pw = st.text_input("Passwort", type="password")
+            st.markdown(f"""
+<div style="text-align:center; margin-bottom:0.9rem;">
+    <div class="role-card-type">{role_name or "Anmeldung"}</div>
+    <div class="role-card-name" style="margin-bottom:0;">{persona}</div>
+</div>
+""", unsafe_allow_html=True)
+            pw = st.text_input("Passwort", type="password",
+                               placeholder="Passwort eingeben",
+                               label_visibility="collapsed")
             ok = st.form_submit_button("Anmelden", type="primary", width="stretch")
         if ok:
             if pw == _password_for(role):
@@ -1247,8 +1621,12 @@ def render_login(role: str):
                 st.rerun()
             else:
                 st.error("Falsches Passwort.")
-        st.markdown('<a href="?" target="_self" style="font-size:0.78rem;">← Rolle wechseln</a>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            '<div style="text-align:center; margin-top:0.7rem;">'
+            '<a href="?" target="_self" style="font-size:0.76rem; color:var(--text-color); '
+            'opacity:0.55; text-decoration:none;">← Andere Rolle wählen</a></div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ============================================================================
@@ -1263,6 +1641,8 @@ elif st.session_state.view == "detail":
     render_truck_detail()
 elif st.session_state.view == "alerts" and st.session_state.role == "fm":
     render_alert_feed()
+elif st.session_state.view == "plan" and st.session_state.role == "wl":
+    render_maintenance_plan()
 else:
     render_fleet_overview()
 

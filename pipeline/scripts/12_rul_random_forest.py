@@ -47,7 +47,10 @@ SENSOR_COLS = [
 WEATHER_COLS = ["temperature_c", "precipitation_mm"]
 AUX_COLS = ["tire_pressure_bar", "brake_fluid_pct", "odometer_km"]
 CONTEXT_COLS = ["load_pct", "route_type_encoded"]
-STATE_COLS = ["health_score"]
+# health_score ist bewusst KEIN Feature: das RUL-Label ist direkt daraus
+# abgeleitet, als Feature waere es Ziel-Leakage (gleiches Prinzip wie in
+# 16_classification_xgboost.py).
+STATE_COLS: list[str] = []
 
 
 def load_input() -> tuple[pd.DataFrame, Path]:
