@@ -64,7 +64,10 @@ _SNAPSHOT_STEPS = _SNAPSHOT_DAY * 48
 # Isolation-Forest-Anomalie: |z| oberhalb dieser Schwelle bei Status OK
 # erzeugt einen INFO-Alert. 3.2 = empirisches 99%-Quantil der OK-Zeilen,
 # d.h. nur das ungewoehnlichste 1 % der Normalmessungen gilt als Anomalie.
+# Für Replay-Bereich (Zukunfts-Messungen) lockerer einstellen (2.5) damit die
+# Demo lebendiger wirkt und mehr sichtbare Aktivität zeigt.
 _ANOMALY_Z_INFO = 3.2
+_ANOMALY_Z_INFO_REPLAY = 2.5
 
 # Re-Arm-Sperre: gleicher LKW + gleiche Severity fruehestens nach 6 h erneut.
 _ALERT_REARM = pd.Timedelta(hours=6)
@@ -289,8 +292,13 @@ def main() -> None:
     #   KRITISCH/WARNUNG aus der Klassifikation, INFO aus dem Isolation
     #   Forest (Anomalie trotz Status OK), sonst keine Meldung (NaN).
     src["alert_severity"] = src["status"].where(src["status"] != "OK")
-    info_mask = (src["status"] == "OK") & (src["max_z_abs"] > _ANOMALY_Z_INFO)
+    # Snapshot: strenge Schwelle (3.2 = 99%-Quantil)
+    info_mask = (src["status"] == "OK") & (src["max_z_abs"] > _ANOMALY_Z_INFO) & snap_mask
     src.loc[info_mask, "alert_severity"] = "INFO"
+    # Replay: lockere Schwelle (2.5) für lebendiger wirkende Demo
+    if has_health_score:
+        info_mask_replay = (src["status"] == "OK") & (src["max_z_abs"] > _ANOMALY_Z_INFO_REPLAY) & (~snap_mask)
+        src.loc[info_mask_replay, "alert_severity"] = "INFO"
 
     # -- fleet.csv: Status je LKW geglaettet ueber die letzten 48 Schritte ----
     # Median des health_scores der letzten 24 h verhindert, dass ein einzelner
