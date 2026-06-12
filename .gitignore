@@ -24,6 +24,8 @@ data/fleet.csv
 data/timeseries.csv
 data/alerts.csv
 data/truck_alerts.csv
+data/replay.csv
+data/replay_alerts.csv
 data/metrics.json
 
 # Generierte Pipeline-Outputs (Charts und Logs)
