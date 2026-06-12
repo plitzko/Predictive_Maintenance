@@ -5,8 +5,10 @@ Big-Data-Projekt, SS2026, Hochschule Muenchen, Team 1.
 PREMA baut ein Predictive-Maintenance-MVP fuer LKW-Flotten. Es simuliert
 OBD-II-nahe Telemetriedaten, erkennt kritische Zustaende, ordnet DTC-Codes zu
 und schaetzt eine Remaining Useful Life (RUL) pro Fahrzeug. Das Ergebnis ist
-ein interaktives Streamlit-Dashboard mit drei Ansichten: Flottenübersicht,
-Fahrzeugdetail und Alert-Feed.
+ein interaktives Streamlit-Dashboard mit rollenbasiertem Login und vier
+Ansichten: Flottenübersicht (inkl. Live-Demo-Zeitraffer), Fahrzeugdetail
+(inkl. RUL-Prognoselinie), Alert-Feed (Flottenmanager) und Wartungsplan
+mit CSV-Export (Werkstattleiter).
 
 ## Architektur
 
@@ -16,8 +18,8 @@ Zwei parallele Arbeitsstroeme wurden zusammengefuehrt:
   Simulator, Feature Engineering, RUL-Modell, Anomalie- und Klassifikations-
   Skripte.
 - **Dashboard** (`app.py`): Streamlit-UI aus dem Predictive_Maintenance-
-  Teilprojekt — drei Screens (Flotte, Fahrzeugdetail, Alerts), URL-Navigation,
-  Custom CSS.
+  Teilprojekt — vier Screens (Flotte, Fahrzeugdetail, Alerts, Wartungsplan),
+  URL-Navigation, Custom CSS.
 
 Der Adapter `data/generate_from_tracking.py` verbindet beide: er liest die
 Pipeline-Ausgabe und schreibt die vier CSVs, die das Dashboard erwartet.
@@ -32,12 +34,13 @@ Pipeline-Ausgabe und schreibt die vier CSVs, die das Dashboard erwartet.
 12_rul_random_forest.py
     → pipeline/data/engine_health/engine_data_with_rul.csv
     → pipeline/outputs/models/rul_random_forest_v1.pkl
+15_anomaly_isolation_forest.py / 16_classification_xgboost.py
+    → pipeline/outputs/*.txt (Reports → metrics.json) + Modell-Artefakte
 data/generate_from_tracking.py
-    → data/fleet.csv
-    → data/timeseries.csv
-    → data/alerts.csv
-    → data/truck_alerts.csv
-app.py  (liest die vier CSVs, ruft Adapter beim Start automatisch auf)
+    → data/fleet.csv, timeseries.csv, alerts.csv, truck_alerts.csv
+    → data/replay.csv, replay_alerts.csv   (Live-Demo-Zeitraffer)
+    → data/metrics.json
+app.py  (liest die CSVs, ruft Adapter beim Start automatisch auf)
 ```
 
 Der Adapter bevorzugt `engine_data_with_rul.csv`, faellt auf
@@ -45,6 +48,12 @@ Der Adapter bevorzugt `engine_data_with_rul.csv`, faellt auf
 Fuer das Dashboard-Snapshot wird Tag 49 der Simulation gewaehlt: der
 fruehste Tag, an dem LKW-01 (Demo-Szenario FA-7) KRITISCH ist.
 Verteilung dort: 5 KRITISCH, 3 WARNUNG, 2 OK.
+
+Das Startdatum des Simulators ist dynamisch (Snapshot-Tag = Generierungs-
+datum), damit Wetter und Saison im Dashboard zur realen Jahreszeit passen.
+Die Simulationstage nach dem Snapshot werden nicht verworfen, sondern als
+`replay.csv`/`replay_alerts.csv` exportiert und speisen den Live-Demo-
+Zeitraffer in der Flottenübersicht (Start/Stopp ueber den Nav-Pill).
 
 Der Flotten-Status je LKW wird ueber den Median des health_scores der
 letzten 24 h geglaettet, damit einzelne Ausreisser-Messungen kein Fahrzeug
@@ -56,10 +65,16 @@ Ein Alert entsteht nur beim Severity-Wechsel eines LKW (Zustandsuebergang),
 mit 6 h Re-Arm-Sperre pro Stufe — statt einer Meldung pro 30-Minuten-Messung.
 Severity-Quellen:
 
-- **KRITISCH / WARNUNG** — XGBoost-Klassifikation (health_score-Schwellen
-  0.5 / 0.7), Meldung aus dem DTC-Mapping inkl. Code und
-  Handlungsempfehlung.
-- **INFO** — Isolation Forest: |z| > 2.5 bei Status OK.
+- **KRITISCH / WARNUNG** — health_score-Schwellen 0.5 / 0.7 (identisch zur
+  XGBoost-Label-Definition), Meldung aus dem DTC-Mapping inkl. Code und
+  Handlungsempfehlung. Die Bremsfluessigkeits-Schwellen im Dashboard
+  (68 % / 50 %) entsprechen exakt diesen Grenzen (brake = health·90+5).
+- **INFO** — Anomalie-Heuristik: |z| > 3.2 bei Status OK (empirisches
+  99-%-Quantil der Normalmessungen); im Replay-Zeitraum 2.5.
+
+Hinweis: Die trainierten Modell-Artefakte (XGBoost, Isolation Forest)
+werden im Adapter noch nicht fuer die Inferenz genutzt — der Anschluss
+per `predict()` ist ein offener Task (siehe TASKS.md).
 
 Jeder Alert traegt Kontext aus der Anreicherung (FA-2): Temperatur,
 Wetterlage, Beladung und Routentyp.
@@ -71,14 +86,14 @@ Dashboard zeigt sie in der Flottenansicht unter "ML-Modellguete" (FA-6).
 ## Was die ML-Skripte messen (und was nicht)
 
 - **Skript 12 (Random Forest, RUL)** schaetzt Tage bis zum Health-Score-
-  Unterschreiten der Schadensschwelle. `health_score` ist als Feature dabei,
-  was die Modell-Performance optimistisch ueberzeichnet (Tautologie-Risiko).
+  Unterschreiten der Schadensschwelle. `health_score` ist bewusst **kein**
+  Feature mehr (das Label ist daraus abgeleitet — Ziel-Leakage); ehrliche
+  Metriken: MAE 13,1 Tage, R² 0,45.
 - **Skript 15 (Isolation Forest, Anomalien)** misst Abweichung vom
   Normalverhalten der ersten 14 Tage je LKW. Erkennt Sensor-Drift und Outlier,
   ist aber kein Beweis fuer einen tatsaechlichen Defekt.
 - **Skript 16 (XGBoost, Klassifikation)** klassifiziert ohne `health_score`
-  als Feature — der ehrlichste Reality-Check, ca. 0,85 Recall fuer kritische
-  Zustaende.
+  als Feature: Accuracy 0,76, Recall KRITISCH 0,86 (FA-4-Ziel ≥ 0,85 erfuellt).
 
 Kurzform: Die Ergebnisse zeigen, dass der Simulator **in sich konsistent**
 ist. Sie sind kein Beweis fuer reale Predictive-Maintenance-Signalstaerke.
@@ -119,7 +134,8 @@ prema/
 |-- docker-compose.yml              # ein Befehl: docker compose up
 |-- README.md / TASKS.md
 |-- .streamlit/
-|   `-- config.toml                 # Streamlit-Theme (PREMA-Farben)
+|   |-- config.toml                 # Streamlit-Theme (PREMA-Farben)
+|   `-- secrets.toml                # optional: Login-Passwoerter (nicht im Repo)
 |
 |-- docs/
 |   |-- Pflichtenheft_Predictive_Maintenance.pdf
@@ -138,6 +154,8 @@ prema/
 |   |-- timeseries.csv              # generiert
 |   |-- alerts.csv                  # generiert
 |   |-- truck_alerts.csv            # generiert
+|   |-- replay.csv                  # generiert (Live-Demo-Zeitraffer)
+|   |-- replay_alerts.csv           # generiert (Live-Demo-Zeitraffer)
 |   |-- metrics.json                # generiert (ML-Metriken fuer FA-6)
 |   `-- feedback.csv                # Werkstatt-Feedback (FA-8)
 |
@@ -171,10 +189,11 @@ prema/
     |   `-- engine_data_with_rul.csv         # Phase 4: RUL-Vorhersagen
     |
     `-- outputs/
-        |-- 13_rul_random_forest.txt
-        |-- charts/                 # 19 PNG-Visualisierungen
-        `-- models/
-            `-- rul_random_forest_v1.pkl
+        |-- *.txt                   # Reports (Quelle fuer metrics.json)
+        |-- charts/                 # PNG-Visualisierungen
+        `-- models/                 # rul_random_forest_v1.pkl,
+                                    # anomaly_isolation_forest_v1.pkl,
+                                    # classification_xgboost_v1.pkl
 ```
 
 ## Lokale Ausfuehrung
@@ -194,8 +213,13 @@ cd pipeline
 python scripts/13_simulator.py
 python scripts/17_feature_engineering.py
 python scripts/12_rul_random_forest.py
+python scripts/15_anomaly_isolation_forest.py
+python scripts/16_classification_xgboost.py
 cd ..
 ```
+
+Die Skripte 15 und 16 sind fuer das Dashboard optional, liefern aber die
+Reports, aus denen der Adapter `data/metrics.json` (FA-6) befuellt.
 
 Dashboard starten:
 
@@ -258,11 +282,16 @@ Health-Check: `http://localhost:8501/_stcore/health`
   Wettereinfluss. 9 von 10 LKW unterschreiten die Schadensschwelle (0,5)
   innerhalb von 90 Tagen.
 - Feature Engineering: 22 → 75 Spalten, kein Zeilenverlust.
-- RUL-Modell: MAE 8 Tage (Test-Set), R² 0,68. Top-Feature: health_score.
-- XGBoost-Klassifikation (ohne health_score als Feature): Accuracy 0,71,
-  Recall KRITISCH 0,85.
+- RUL-Modell (ohne health_score als Feature): MAE 13,1 Tage, R² 0,45.
+  Top-Feature: brake_fluid_pct.
+- XGBoost-Klassifikation (ohne health_score als Feature): Accuracy 0,76,
+  Recall KRITISCH 0,86.
+- Statusgrenzen empirisch gedeckt: WARNUNG → KRITISCH dauert min. 14,6 Tage
+  (Median 23,5) — das 14-Tage-Wartungsfenster passt fuer jeden LKW.
 - Dashboard-Snapshot: Tag 49 der Simulation → 5 KRITISCH, 3 WARNUNG, 2 OK
   (fruehster Tag mit LKW-01 = KRITISCH fuer das Demo-Szenario FA-7).
+- Live-Demo: 41 Simulationstage nach dem Snapshot als Zeitraffer abspielbar
+  (Toasts bei neuen Alerts, ~2,5 min Gesamtlaufzeit).
 
 ## Datenquellen
 
@@ -272,7 +301,11 @@ Health-Check: `http://localhost:8501/_stcore/health`
 
 ## Naechste sinnvolle Schritte
 
+Vollstaendige Liste mit Anforderungs-Status: siehe `TASKS.md`.
+
+- ML-Modelle im Adapter per `predict()` anwenden (statt Schwellen-Heuristik).
+- Echte REST-APIs (OpenWeatherMap, CarAPI) + E-Mail-Mock fuer kritische Alerts.
+- Naechtlicher Retraining-Job mit Qualitaets-Gate (FA-8).
 - Sauberer zeitlicher Train/Test-Split fuer RUL statt Zufallssplit.
-- Sensitivitaetsanalyse der Simulatorparameter.
 - Persistenter Storage (z. B. TimescaleDB) statt CSV.
 - Validierung gegen echte Flotten-, Wartungs- oder Ausfalldaten.

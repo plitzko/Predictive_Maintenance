@@ -1,9 +1,24 @@
 # Aufgabenliste PREMA
 
-Abgabe Abschlusspräsentation: **10.07.2026**
-Zwischenmeilenstein MVP-Demo: **19.06.2026**
+Abschlusspräsentation: **10.07.2026** · MVP-Demo: **19.06.2026**
+Stand: 12.06.2026 · (FA-x / NFR) = Pflichtenheft · (P-FA-xx) = begleitende Präsentation
 
-Legende: `[x]` erledigt · `[ ]` offen · (FA-x / NFR) = Referenz ins Pflichtenheft
+## Anforderungs-Überblick
+
+| Anforderung | Status | Anmerkung |
+| --- | --- | --- |
+| FA-1 Simulator & Datenerfassung | ✅ | 10 LKW, 90 Tage, Seed 42, saisonal korrekt |
+| FA-2 Externe APIs (Wetter, DTC) | ⚠️ | simuliert/lokal — echte REST-Calls offen |
+| FA-3 Anomalieerkennung (Isolation Forest) | ⚠️ | Modell trainiert; Dashboard nutzt noch z-Score-Heuristik |
+| FA-4 Klassifikation + RUL | ⚠️ | Recall KRITISCH 0,86 ✅ · Accuracy 76 % (Ziel 80) · RUL-Ziel verfehlt |
+| FA-5 Alert-Engine (3 Stufen) | ⚠️ | Stufen + Kosten + DTC ✅ · E-Mail-Mock offen |
+| FA-6 Streamlit-Dashboard | ✅ | übertroffen: + Wartungsplan, Live-Demo, RUL-Prognoselinie |
+| FA-7 Demo-Szenario LKW-01 | ✅ | Generalprobe (< 2 min) offen |
+| FA-8 Feedback & Retraining | ⚠️ | Erfassung ✅ · nächtlicher Retraining-Job offen |
+| NFR Zugriffsschutz | ✅ | Rollen-Login, optionale Passwörter (st.secrets) |
+| NFR Deployment (Docker) | ⚠️ | Setup ✅ · End-to-End-Nachweis offen |
+| NFR Datenpersistenz (TimescaleDB) | ❌ | MVP bewusst CSV — Entscheidung dokumentieren |
+| P-FA-10 Wartungsliste als CSV | ✅ | Export auf dem Wartungsplan-Screen |
 
 ---
 
@@ -13,53 +28,47 @@ Legende: `[x]` erledigt · `[ ]` offen · (FA-x / NFR) = Referenz ins Pflichtenh
 
 #### Erledigt
 
-- [x] EDA des KIT/Kaggle Engine-Health-Datensatzes — Inspektion, Verteilungen, Korrelationen (`01_inspect.py`, `02_eda.py`)
-- [x] Baseline-Klassifikationsmodell Phase 1 (`03_model.py`)
-- [x] Anomalieerkennung per z-Score als Vorstufe (`04_anomaly.py`, `05_summary.py`)
-- [x] OBD-II-Simulator — 10 LKW, 90 Tage, 30-Minuten-Takt, 43.200 Zeilen, Seed 42, physikalische Kopplung Beladung ↔ Verschleiß (`13_simulator.py`) (FA-1, NFR Reproduzierbarkeit)
-- [x] Simulator-Diagnostik — statistischer Nachweis der Verschleißkorrelationen (`14_simulator_diagnostics.py`) (FA-1 Testkriterium)
-- [x] Feature Engineering — Rolling Means/Std (6 h/24 h), Deltas, Lags (1/12/48), Beladungs-Flags, Baseline-Abweichungen, Zeitfeatures; 22 → 75 Spalten ohne Zeilenverlust (`17_feature_engineering.py`)
-- [x] RUL-Prognose mit Random Forest — MAE 8 Tage, R² 0,68, Modell-Artefakt `rul_random_forest_v1.pkl` (`12_rul_random_forest.py`) (FA-4)
-- [x] Anomalieerkennung mit Isolation Forest — kalibriert auf 14-Tage-Baseline je LKW, ohne health_score als Feature (`15_anomaly_isolation_forest.py`) (FA-3)
-- [x] 3-Klassen-Klassifikation mit XGBoost — Accuracy 0,71, Recall KRITISCH 0,85, bewusst ohne health_score als Feature (`16_classification_xgboost.py`) (FA-4)
-- [x] XGBoost-Schwellen in den Datenpfad eingebunden — Status-Grenzen (health_score 0,5/0,7) identisch zwischen Skript 16 und Adapter (FA-4)
-- [x] Isolation-Forest-Scores ins Dashboard überführt — anomale Messungen (|z| > 2,5 bei Status OK) als INFO-Alert, `source`-Feld unterscheidet „Isolation Forest" / „XGBoost-Klassifikation" (FA-3)
-- [x] Status-Glättung — Flotten-Status aus Median des Health-Scores der letzten 24 h, einzelne Ausreißer eskalieren kein Fahrzeug mehr
-- [x] ML-Metriken im Dashboard — Adapter parst die Reports aus Skript 12/15/16 nach `data/metrics.json`, Anzeige im Expander „ML-Modellgüte" (FA-6)
+- [x] EDA + Baseline-Modelle Phase 1 (`01`–`05`)
+- [x] OBD-II-Simulator: 10 LKW, 90 Tage, Seed 42 (`13`) (FA-1)
+- [x] Simulator-Diagnostik (`14`) (FA-1 Testkriterium)
+- [x] Feature Engineering 22 → 75 Spalten (`17`)
+- [x] Isolation Forest mit 14-Tage-Baseline (`15`) (FA-3)
+- [x] XGBoost-Klassifikation ohne health_score: Accuracy 0,76, Recall KRITISCH 0,86 (`16`) (FA-4)
+- [x] RUL-Ziel-Leakage entfernt — ehrliche Metriken: MAE 13,1 d, R² 0,45 (`12`) (FA-4)
+- [x] Statusgrenzen validiert: WARNUNG→KRITISCH min. 14,6 d Vorlauf (FA-5)
+- [x] INFO-Schwelle = 99-%-Quantil (z > 3,2; Replay 2,5) (FA-3)
+- [x] Status-Glättung (24-h-Median) + ML-Metriken im Dashboard (FA-6)
 
 #### Offen
 
-- [ ] Klassifikations-Accuracy auf ≥ 80 % heben — FA-4-Testkriterium fordert 80 %, aktuell 71 % (Recall KRITISCH 0,85 hält das Ziel von ≥ 85 % knapp)
-- [ ] Threshold-Tuning — Recall für KRITISCH-Klasse maximieren, Sicherheit vor Precision; False-Positive-Rate < 10 % für Isolation Forest nachweisen (FA-3 Testkriterium)
-- [ ] Zeitlicher Train/Test-Split für RUL statt Zufallssplit — Look-Ahead-Bias vermeiden (vgl. README „Methodische Risiken")
-- [ ] Sensitivitätsanalyse der Simulatorparameter
-- [ ] Nächtlicher Retraining-Job mit Qualitäts-Gate — Feedback-Labels aus `data/feedback.csv` einbeziehen, neues Modell nur bei gehaltenen Metriken aktivieren, Qualitätsreport protokollieren (FA-8)
+- [ ] **ML-Modelle im Adapter anwenden** — `predict()` statt Schwellen-/z-Score-Heuristik (FA-3, FA-4)
+- [ ] Accuracy auf ≥ 80 % heben (aktuell 76 %) (FA-4)
+- [ ] RUL-Ziel < 15 % Abweichung — verbessern oder als MVP-Grenze dokumentieren (FA-4)
+- [ ] Isolation-Forest-FPR < 10 % nachweisen (FA-3)
+- [ ] Zeitlicher Train/Test-Split für RUL statt Zufallssplit
+- [ ] Nächtlicher Retraining-Job mit Qualitäts-Gate (FA-8)
 
-### Person B — Datenanreicherung, Integration & Infrastruktur
+### Person B — Integration & Infrastruktur
 
 #### Erledigt
 
-- [x] Zeitstempel-Anreicherung des Rohdatensatzes (`06_add_timestamps.py`)
-- [x] Wetterdaten als Verschleißfaktor — Temperatur und Niederschlag im Datenpfad, simuliert (`07_add_weather.py`, Phase 2) (FA-2, teilweise)
-- [x] DTC-Mapping — lokale Zuordnung OBD-II-Fehlercodes mit deutscher Beschreibung und Handlungsempfehlung (`08_dtc_mapping.py`) (FA-2, teilweise)
-- [x] Modellvergleich mit/ohne Wetterfeatures (`09_model_with_weather.py`)
-- [x] Alert-Demo und Phase-2-Zusammenfassung (`10_alert_demo.py`, `11_summary_phase2.py`)
-- [x] Adapter Pipeline → Dashboard — erzeugt `fleet.csv`, `timeseries.csv`, `alerts.csv`, `truck_alerts.csv`, `metrics.json`; Fallback-Kette über drei Quelldateien (`data/generate_from_tracking.py`)
-- [x] Alert-Engine entspammt — Alert nur bei Severity-Wechsel je LKW (Zustandsübergang) mit 6-h-Re-Arm-Sperre statt einer Meldung pro 30-Minuten-Messung (FA-5)
-- [x] Dreistufiges Warnsystem KRITISCH/WARNUNG/INFO inkl. Kosteneinsparung pro Alert (600/400/0 €/h) (FA-5)
-- [x] DTC-Codes live im Alert-Feed — DTC-Code + Handlungsempfehlung bei KRITISCH/WARNUNG sichtbar (FA-2, FA-5)
-- [x] Wetter- und Beladungskontext in Alert-Details — `temperature_c`, `weather`, `load_pct`, `route_type` in `alerts.csv` (FA-2)
-- [x] Feedback-Persistenz — „Wartung bestätigt / Fehlalarm" pro Truck wird mit Zeitstempel und Status-Kontext in `data/feedback.csv` gespeichert (FA-8, Erfassungsseite)
-- [x] Docker-Setup — `docker/Dockerfile`, `docker-compose.yml`, `docker/entrypoint.sh` mit automatischem Pipeline-Lauf bei fehlenden Artefakten (NFR Deployment)
-- [x] Snapshot-Logik — Tag 49 der Simulation als Demo-Fenster (frühster Tag mit LKW-01 = KRITISCH), Zeitstempel relativ zu „jetzt" verschoben (FA-7)
+- [x] Zeitstempel-/Wetter-/DTC-Anreicherung Phase 2 (`06`–`11`) (FA-2 teilw.)
+- [x] Adapter Pipeline → Dashboard-CSVs (`data/generate_from_tracking.py`)
+- [x] Alert-Engine: nur Severity-Wechsel + 6-h-Re-Arm, 3 Stufen, Kosten (FA-5)
+- [x] DTC, Wetter und Beladung im Alert-Feed (FA-2)
+- [x] Feedback-Persistenz `data/feedback.csv` (FA-8)
+- [x] Docker-Setup mit automatischem Pipeline-Lauf (NFR Deployment)
+- [x] Snapshot Tag 49 + Saison-Fix: Wetter passt zur realen Jahreszeit (FA-7)
+- [x] Replay-Export `replay.csv`/`replay_alerts.csv` für die Live-Demo (FA-7)
+- [x] Bremsschwellen konsistent zur health-Skalierung (68 %/50 %)
 
 #### Offen
 
-- [ ] OpenWeatherMap-API in aktiven Datenpfad einbinden — Wetterdaten nachweislich per REST-API abrufen, Fallback-Wert bei API-Ausfall (FA-2 Testkriterium; aktuell simuliert)
-- [ ] CarAPI-Anbindung prüfen — DTC-Datenbank per REST statt lokalem Mapping, mindestens 3 DTCs mit korrekter Beschreibung nachweisen (FA-2 Testkriterium; lokales Mapping als Fallback behalten)
-- [ ] E-Mail-Versand für kritische Alerts — SMTP-Mock (`smtplib`), Versand erfolgreich protokollieren (FA-5 Testkriterium)
-- [ ] TimescaleDB-Persistenz — Rohdaten und ML-Ergebnisse in lokaler TimescaleDB statt CSV; Dashboard-Zustand übersteht Neustarts (NFR Datenpersistenz; im MVP bewusst CSV, Entscheidung dokumentieren falls es dabei bleibt)
-- [ ] Docker End-to-End prüfen — Pipeline (13→17→12) + Adapter + Dashboard laufen in einem `docker compose up` durch; Batch-Latenz < 30 s für 10 Fahrzeuge messen (NFR Latenz/Deployment)
+- [ ] OpenWeatherMap-API mit Fallback einbinden (FA-2 Testkriterium)
+- [ ] CarAPI für DTCs prüfen, lokales Mapping als Fallback (FA-2 Testkriterium)
+- [ ] E-Mail-Versand kritischer Alerts per SMTP-Mock (FA-5 Testkriterium)
+- [ ] TimescaleDB-Persistenz oder CSV-Entscheidung dokumentieren (NFR)
+- [ ] Docker End-to-End prüfen, Batch-Latenz < 30 s messen (NFR, P-NFA-02)
 
 ---
 
@@ -69,35 +78,34 @@ Legende: `[x]` erledigt · `[ ]` offen · (FA-x / NFR) = Referenz ins Pflichtenh
 
 #### Erledigt
 
-- [x] Flottenübersicht (Screen 1) — Statusampel, 4 KPI-Karten, nach Priorität sortierte Tabelle, kritische Fahrzeuge oben (FA-6)
-- [x] Alert-Feed (Screen 3) — chronologische Liste, Filter nach Schweregrad (ALLE/KRITISCH/WARNUNG/INFO), Quelle pro Alert, Link zur Detailansicht (FA-6)
-- [x] URL-basierte Navigation — Deep-Links für Rolle, View, LKW und Filter; ungültige Parameter fallen sauber zurück (unbekannter LKW, ungültiger Filter, WL-Umleitung vom Alert-Feed)
-- [x] Rollen-Auswahl-Screen — zwei Personas (Flottenmanager / Werkstattleiter) mit unterschiedlichen Sichtrechten: nur FM sieht Alert-Feed und Kosten-KPI, nur WL sieht Ø-RUL und Wartungsfeedback (NFR Zugriffsschutz)
-- [x] Login-Screen — `st.secrets`-basierter Passwortschutz pro Rolle, offener Demo-Modus ohne Secrets; Anmeldung übersteht Navigation und Reload per Hash-Token in der URL (NFR Zugriffsschutz)
-- [x] CSV-Export — Download-Buttons in Flottenübersicht und Alert-Feed (gefiltert), UTF-8-BOM für Excel (FA-6)
-- [x] Kosteneinsparungs-Kalkulation — verhinderte Kosten in Flotten-KPI und pro Alert, zentrale Konstanten (600 €/h × 4 h Standzeit) (FA-5)
-- [x] Feedback-Buttons in der Detailansicht für die WL-Rolle (FA-8, UI-Seite)
+- [x] Flottenübersicht: KPI-Karten + priorisierte Statustabelle (FA-6)
+- [x] Alert-Feed mit Filtern und Tages-Gruppierung (FA-6)
+- [x] URL-Navigation: Deep-Links, Rollen-Guards, saubere Fallbacks
+- [x] Rollenauswahl + Passwort-Login (st.secrets, Hash-Token) (NFR Zugriffsschutz)
+- [x] Login-Redesign: Avatare, Check-Listen, dynamischer Sicherheitshinweis
+- [x] CSV-Exporte Flotte + Alert-Feed (FA-6)
+- [x] Wartungsplan als eigener Screen mit Nav-Badge (Persona Stefan)
+- [x] Wartungsplan-CSV-Export (P-FA-10)
+- [x] Feedback-Buttons in der Detailansicht (FA-8)
 
 #### Offen
 
-- [ ] AI-Chatbot auf Groq-Basis — Chat-Assistent im Dashboard, der Fragen zur Flotte beantwortet und bei der Bedienung hilft (z. B. „Welche LKW sind kritisch?", „Was bedeutet DTC P0217?"); Anbindung über die Groq-API (`groq`-SDK, Llama-Modell), API-Key über `st.secrets`/`.env`, Kontext aus `fleet.csv`, `alerts.csv` und ML-Metriken mitgeben
+- [ ] AI-Chatbot auf Groq-Basis — Flotten-Fragen und DTC-Erklärungen im Dashboard
 
 ### Person B — Detailansicht, Visualisierung & Demo
 
 #### Erledigt
 
-- [x] Einzelfahrzeug-Detail (Screen 2) — Sensor-Balkenindikatoren mit Schwellenfarben, Fahrzeug-Metadaten, Empfehlungs-Banner je Status (FA-6)
-- [x] Sensor-Zeitreihen — Bremsflüssigkeit (72 h) mit Warn-/Kritisch-Schwellen und Alert-Markern, Motortemperatur mit kritischer Schwelle und dynamischer y-Achse, Öldruck mit Warnschwelle (FA-6)
-- [x] RUL-Balkendiagramm — Flottenvergleich mit hervorgehobenem Fahrzeug, statusfarbig (FA-6, Wireframe Screen 2)
-- [x] Alert-Verlauf je Fahrzeug (30 Tage) inkl. DTC-Code und Handlungsempfehlung (FA-6)
-- [x] Wireframe-Treue hergestellt — „Quelle pro Alert" sichtbar, 4 KPI-Karten im Alert-Feed, dreistufiges Farbsystem Grün/Orange/Rot (Pflichtenheft Abb. 2–4)
-- [x] Custom CSS — Light/Dark-Mode über Streamlit-CSS-Variablen, KPI-Cards, Badges, Tabellen-Hover; Dark-Mode-Bug der Motortemperatur-Linie behoben
-- [x] Deutsche Zahlenformatierung zentralisiert (`fmt_de`), Bug mit zerstörten Kommas in Meldungstexten behoben
-- [x] Demo-Szenario LKW-01 — Durchklick für Präsentation: Flottenübersicht → KRITISCH-Alert → Detailansicht → Sensor-Zeitreihe → RUL → Alert-Historie; Snapshot-Tag so gewählt, dass LKW-01 KRITISCH ist (FA-7)
-- [x] Smoke-Tests — `python tests/smoke_test.py` rendert alle Views inkl. Edge-Cases und testet den Login-Flow headless (NFR Testbarkeit)
+- [x] Detailansicht: Sensor-Indikatoren, Metadaten, Empfehlungs-Banner (FA-6)
+- [x] Sensor-Zeitreihen mit Schwellen und Alert-Markern (FA-6)
+- [x] RUL-Prognoselinie im Brems-Chart, 14-Tage-Horizont (FA-4, FA-6)
+- [x] RUL-Flottenvergleich + Alert-Historie 30 Tage (FA-6)
+- [x] Custom CSS: Light/Dark, Icons, Animationen, deutsche Formate
+- [x] Demo-Szenario LKW-01 (FA-7)
+- [x] Live-Demo-Zeitraffer mit Toasts, Start/Stopp in der Navigation (FA-7)
+- [x] UI-Fehlerdurchgang: Doppel-Button, Toast-Loop, totes CSS behoben
+- [x] Smoke-Tests `tests/smoke_test.py` (NFR Testbarkeit)
 
 #### Offen
 
-- [ ] Demo-Generalprobe für den 19.06. — kompletten Durchklick mit Stoppuhr proben, Gesamtdurchlaufzeit < 2 min nachweisen (FA-7 Testkriterium)
-- [ ] Screenshots/Folien der drei Screens für die Abschlusspräsentation am 10.07. aktualisieren (Abgleich mit `docs/Begleitende_Praesentation_Pflichtenheft.pdf`)
-- [ ] Mobile/kleine Viewports prüfen — KPI-Grid und Tabellen-Layout bei schmalen Fenstern (nice-to-have, Demo läuft am Desktop)
+- [ ] Demo-Generalprobe für den 19.06. — Durchklick inkl. Live-Demo, < 2 min nachweisen (FA-7 Testkriterium)

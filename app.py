@@ -99,21 +99,28 @@ st.markdown("""
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 0.6rem 1rem;
-        background: linear-gradient(90deg, #1A1A1A 0%, #2A2A2A 100%);
+        padding: 0.7rem 1.2rem;
+        background: linear-gradient(90deg, #16161A 0%, #26262C 100%);
         color: #FFF;
-        border-radius: 6px;
+        border-radius: 8px;
         margin-bottom: 1rem;
         font-family: 'Plus Jakarta Sans', sans-serif;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3), inset 0 -2px 0 var(--p-accent);
     }
     .header-brand {
         font-size: 1.25rem; font-weight: 700; letter-spacing: 0.08em;
-        display: flex; align-items: center; gap: 0.5rem;
+        display: flex; align-items: center; gap: 0.65rem;
     }
     .header-brand-accent { color: var(--p-accent); }
-    .header-user { font-size: 0.8rem; opacity: 0.75; letter-spacing: 0.05em;
+    .header-tagline {
+        font-size: 0.6rem; font-weight: 600; letter-spacing: 0.16em;
+        text-transform: uppercase; color: rgba(255,255,255,0.38);
+        border-left: 1px solid rgba(255,255,255,0.16);
+        padding-left: 0.65rem;
+    }
+    .header-user { font-size: 0.75rem; opacity: 0.75; letter-spacing: 0.05em;
         display: flex; align-items: center; gap: 0.4rem; }
+    @media (max-width: 760px) { .header-tagline { display: none; } }
 
     /* ── Navigation ── */
     .nav-buttons {
@@ -359,15 +366,21 @@ st.markdown("""
         border-bottom: 1px solid var(--p-border);
         background: var(--background-color);
         font-size: 0.85rem; align-items: center;
-        transition: background 0.15s; cursor: pointer; color: var(--text-color);
+        transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+        cursor: pointer; color: var(--text-color);
     }
     .truck-icon { font-size: 1.1rem; text-align: center; }
-    .truck-table-row:hover { background: var(--secondary-background-color); }
+    .truck-table-row:hover {
+        background: var(--secondary-background-color);
+        transform: translateX(2px);
+    }
     .truck-table-row.critical {
-        background: color-mix(in srgb, #FF3D4C 5%, var(--background-color));
+        background: color-mix(in srgb, #FF3D4C 10%, var(--background-color));
+        box-shadow: inset 4px 0 0 var(--p-accent), 0 2px 8px rgba(255, 61, 76, 0.2);
     }
     .truck-table-row.warning {
-        background: color-mix(in srgb, #FFA500 5%, var(--background-color));
+        background: color-mix(in srgb, #FFA500 8%, var(--background-color));
+        box-shadow: inset 4px 0 0 var(--p-warn), 0 2px 6px rgba(255, 165, 0, 0.15);
     }
     .row-link,.row-link *,.row-link:visited,.row-link:hover,.row-link:active {
         color: inherit !important; text-decoration: none !important;
@@ -409,59 +422,115 @@ st.markdown("""
     }
 
     /* ── Rollen-Auswahl ── */
-    .role-screen { max-width: 640px; margin: 3.5rem auto; }
+    .role-screen { max-width: 680px; margin: 3rem auto; text-align: center; }
     .role-screen-brand {
-        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.9rem; font-weight: 700;
+        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.1rem; font-weight: 700;
         letter-spacing: 0.18em; color: var(--text-color); margin-bottom: 0.25rem;
     }
     .role-screen-brand-accent { color: var(--p-accent); }
     .role-screen-tagline {
         font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase;
-        color: var(--text-color); opacity: 0.35; margin-bottom: 2.8rem;
+        color: var(--text-color); opacity: 0.35; margin-bottom: 2.6rem;
     }
     .role-screen-heading {
-        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.4rem; font-weight: 700;
-        color: var(--text-color); margin-bottom: 1.4rem;
+        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.35rem; font-weight: 700;
+        color: var(--text-color); margin-bottom: 0.3rem;
+    }
+    .role-screen-sub {
+        font-size: 0.8rem; color: var(--text-color); opacity: 0.5; margin-bottom: 1.6rem;
     }
     .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
     .role-card {
-        background: var(--background-color); border: 1px solid var(--p-border); border-radius: 8px;
-        padding: 1.9rem 1.7rem; cursor: pointer; transition: all 0.18s ease;
+        background: var(--background-color); border: 1px solid var(--p-border); border-radius: 12px;
+        padding: 1.6rem 1.5rem 1.4rem; cursor: pointer; transition: all 0.18s ease;
         display: block; color: inherit; position: relative; overflow: hidden;
+        text-align: left; box-shadow: var(--p-shadow);
     }
     .role-card::before {
-        content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
-        background: var(--p-accent); opacity: 0; transition: opacity 0.18s ease;
+        content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px;
+        background: linear-gradient(90deg, var(--p-accent), #FF7A85);
+        opacity: 0; transition: opacity 0.18s ease;
     }
     .role-card:hover::before { opacity: 1; }
-    .role-card:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,0,0,0.09); border-color: rgba(255,61,76,0.22); }
+    .role-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,0.12); border-color: rgba(255,61,76,0.25); }
     .role-card,.role-card *,.role-card:visited,.role-card:hover,.role-card:active { text-decoration: none !important; color: inherit; }
+    .role-card-head { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 1.15rem; }
+    .role-card-avatar {
+        width: 46px; height: 46px; border-radius: 50%; flex: none;
+        display: flex; align-items: center; justify-content: center;
+        background: linear-gradient(135deg, var(--p-accent), #FF7A85);
+        color: #FFF; font-weight: 800; font-size: 0.95rem;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        box-shadow: 0 4px 12px var(--p-glow);
+    }
     .role-card-type {
         font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.6rem; font-weight: 700;
-        letter-spacing: 0.18em; text-transform: uppercase; color: var(--p-accent); margin-bottom: 0.4rem;
+        letter-spacing: 0.18em; text-transform: uppercase; color: var(--p-accent); margin-bottom: 0.15rem;
     }
     .role-card-name {
-        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.2rem; font-weight: 700;
-        color: var(--text-color); margin-bottom: 1.2rem;
+        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.15rem; font-weight: 700;
+        color: var(--text-color); line-height: 1.2;
     }
-    .role-card-features { list-style: none; padding: 0; margin: 0 0 1.5rem 0; }
+    .role-card-features { list-style: none; padding: 0; margin: 0 0 1.4rem 0; }
     .role-card-features li {
-        font-size: 0.77rem; padding: 0.3rem 0; color: var(--text-color); opacity: 0.58;
-        border-bottom: 1px solid var(--p-border);
+        display: flex; align-items: center; gap: 0.5rem;
+        font-size: 0.77rem; padding: 0.28rem 0; color: var(--text-color); opacity: 0.65;
     }
+    .role-card-features li svg { width: 12px; height: 12px; color: var(--p-ok); flex: none; }
     .role-card-cta {
-        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.78rem; font-weight: 700;
-        color: var(--p-accent); letter-spacing: 0.04em;
+        display: inline-flex; align-items: center; gap: 0.35rem;
+        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.74rem; font-weight: 700;
+        color: var(--p-accent); letter-spacing: 0.05em;
+        border: 1px solid var(--p-accent); border-radius: 6px;
+        padding: 0.45rem 0.95rem; transition: all 0.15s ease;
     }
+    .role-card:hover .role-card-cta {
+        background: var(--p-accent); color: #FFF !important;
+        box-shadow: 0 4px 14px var(--p-glow);
+    }
+    .role-screen-note {
+        display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+        font-size: 0.67rem; color: var(--text-color); opacity: 0.45; margin-top: 1.6rem;
+        font-family: 'Inter', sans-serif;
+    }
+    .role-screen-note svg { width: 11px; height: 11px; flex: none; }
 
     /* ── Login-Karte (st.form gibt es nur auf der Login-Seite) ── */
     [data-testid="stForm"] {
         background: var(--background-color);
         border: 1px solid var(--p-border);
-        border-radius: 10px;
-        padding: 1.5rem 1.5rem 1.1rem;
-        box-shadow: var(--p-shadow);
+        border-top: 3px solid var(--p-accent);
+        border-radius: 12px;
+        padding: 2rem 1.8rem 1.3rem;
+        box-shadow: var(--p-shadow-hover);
+        animation: fadeUp 0.35s ease both;
     }
+    .login-avatar {
+        width: 60px; height: 60px; border-radius: 50%;
+        margin: 0 auto 0.85rem;
+        display: flex; align-items: center; justify-content: center;
+        background: linear-gradient(135deg, var(--p-accent), #FF7A85);
+        color: #FFF; font-weight: 800; font-size: 1.25rem;
+        font-family: 'Plus Jakarta Sans', sans-serif; letter-spacing: 0.02em;
+        box-shadow: 0 6px 16px var(--p-glow);
+    }
+    .login-name {
+        font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.25rem;
+        font-weight: 700; color: var(--text-color); margin-bottom: 0.2rem;
+    }
+    .login-field-label {
+        font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.14em;
+        font-weight: 700; color: var(--text-color); opacity: 0.55;
+        margin: 0.4rem 0 0.35rem 0.1rem;
+        font-family: 'Plus Jakarta Sans','Inter',sans-serif;
+    }
+    .login-divider { height: 1px; background: var(--p-border); margin: 1.1rem 0 0.75rem; }
+    .login-note {
+        display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+        font-size: 0.67rem; color: var(--text-color); opacity: 0.5;
+        font-family: 'Inter', sans-serif;
+    }
+    .login-note svg { width: 11px; height: 11px; flex: none; }
 
     /* ── Mikro-Animationen & Akzente ── */
     @keyframes fadeUp {
@@ -481,31 +550,45 @@ st.markdown("""
     /* ── Live-Demo-Leiste ── */
     .replay-bar {
         display: flex; align-items: center; gap: 0.7rem;
-        padding: 0.45rem 0.8rem; margin-bottom: 0.6rem;
-        border: 1px solid var(--p-accent); border-radius: 6px;
-        background: color-mix(in srgb, #FF3D4C 6%, var(--background-color));
-        font-family: 'Inter',monospace; font-size: 0.78rem;
-        color: var(--text-color);
+        padding: 0.7rem 1.1rem; margin-bottom: 0.9rem;
+        border: 2px solid var(--p-accent); border-radius: 8px;
+        background: linear-gradient(135deg,
+                      color-mix(in srgb, #FF3D4C 12%, var(--background-color)),
+                      color-mix(in srgb, #FF3D4C 4%, var(--background-color)));
+        font-family: 'Inter',monospace; font-size: 0.8rem;
+        color: var(--text-color); font-weight: 600; letter-spacing: 0.05em;
+        box-shadow: 0 0 20px rgba(255, 61, 76, 0.25), inset 0 1px 0 rgba(255,255,255,0.1);
+        animation: replayGlow 2s ease-in-out infinite;
+    }
+    @keyframes replayGlow {
+        0%, 100% { box-shadow: 0 0 20px rgba(255, 61, 76, 0.25), inset 0 1px 0 rgba(255,255,255,0.1); }
+        50%      { box-shadow: 0 0 35px rgba(255, 61, 76, 0.4), inset 0 1px 0 rgba(255,255,255,0.15); }
     }
     .replay-dot {
-        width: 9px; height: 9px; border-radius: 50%; flex: none;
-        background: var(--p-accent); animation: replayPulse 1.2s ease infinite;
+        width: 10px; height: 10px; border-radius: 50%; flex: none;
+        background: var(--p-accent); animation: replayPulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        box-shadow: 0 0 12px var(--p-accent);
     }
-    @keyframes replayPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
-    .replay-time { font-weight: 700; }
+    @keyframes replayPulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.3; transform: scale(0.8); }
+    }
+    .replay-time { font-weight: 700; color: var(--p-accent); }
     .replay-progress {
-        flex: 1; height: 4px; border-radius: 2px;
-        background: var(--secondary-background-color); overflow: hidden;
+        flex: 1; height: 6px; border-radius: 3px;
+        background: rgba(120, 120, 140, 0.2); overflow: hidden;
+        border: 1px solid rgba(255, 61, 76, 0.3);
     }
-    .replay-progress-fill { height: 100%; background: var(--p-accent); }
-    .replay-stop {
-        flex: none; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.05em;
-        color: var(--p-accent) !important; text-decoration: none !important;
-        border: 1px solid var(--p-accent); border-radius: 4px;
-        padding: 0.18rem 0.55rem; transition: all 0.15s ease;
-        font-family: 'Plus Jakarta Sans','Inter',sans-serif;
+    .replay-progress-fill {
+        height: 100%; background: linear-gradient(90deg, var(--p-accent), #FFB74D);
+        animation: progressShine 2s ease-in-out infinite;
+        box-shadow: 0 0 10px rgba(255, 61, 76, 0.6);
     }
-    .replay-stop:hover { background: var(--p-accent); color: #FFF !important; }
+    @keyframes progressShine {
+        0%   { box-shadow: 0 0 10px rgba(255, 61, 76, 0.6); }
+        50%  { box-shadow: 0 0 20px rgba(255, 157, 77, 0.8); }
+        100% { box-shadow: 0 0 10px rgba(255, 61, 76, 0.6); }
+    }
 
     /* ── Wartungsplaner ── */
     .plan-row {
@@ -565,6 +648,9 @@ _ICON_PATHS = {
     "info": '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/>'
             '<line x1="12" y1="8" x2="12.01" y2="8"/>',
     "shield": '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    "lock": '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>'
+            '<path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    "check": '<polyline points="20 6 9 17 4 12"/>',
 }
 
 
@@ -778,22 +864,24 @@ _role_labels = {
     "fm": "Thomas Müller · Flottenmanager",
     "wl": "Stefan Berger · Werkstattleiter",
 }
-_h_user = _role_labels.get(st.session_state.role, "")
-_switch_link = (
-    ' &nbsp;<a href="?" target="_self" style="color:rgba(255,255,255,0.45);'
-    'font-size:0.68rem;letter-spacing:0.05em;text-decoration:none!important;">Abmelden</a>'
-    if st.session_state.role else ""
-)
-st.markdown(f"""
-<div class="header-bar">
-    <div class="header-brand">
-        <span>PRE<span class="header-brand-accent">MA</span></span>
-</div>
-    <div class="header-user" style="font-size:0.75rem;opacity:0.7;">
-        {_h_user}{_switch_link}
-    </div>
-</div>
-""", unsafe_allow_html=True)
+# Header-Bar nur für angemeldete Nutzer: die Rollenauswahl-/Login-Seite hat
+# ihr eigenes zentriertes Branding. Bewusst als Einzeiler – Zeilen, die nur
+# aus Leerzeichen bestehen, beenden in Markdown den HTML-Block und ließen
+# das schließende </div> als Code-Schnipsel erscheinen.
+if st.session_state.role:
+    _h_user = _role_labels.get(st.session_state.role, "")
+    _switch_link = (
+        ' &nbsp;<a href="?" target="_self" style="color:rgba(255,255,255,0.45);'
+        'font-size:0.68rem;letter-spacing:0.05em;text-decoration:none!important;">Abmelden</a>'
+    )
+    st.markdown(
+        '<div class="header-bar">'
+        '<div class="header-brand"><span>PRE<span class="header-brand-accent">MA</span></span>'
+        '<span class="header-tagline">Predictive Maintenance</span></div>'
+        f'<div class="header-user">{_h_user}{_switch_link}</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 if st.session_state.role:
     n_crit_alerts = int((alerts["severity"] == "KRITISCH").sum())
@@ -966,12 +1054,14 @@ def render_maintenance_plan():
     Terminvorschlag = jetzt + PLANNER_SAFETY * RUL, d.h. die Wartung liegt
     mit Sicherheitspuffer vor dem prognostizierten kritischen Zustand.
     """
-    st.markdown('<div class="section-title">Wartungsplan</div>', unsafe_allow_html=True)
-    st.markdown(
-        f'<div class="section-sub">TERMINVORSCHLAG = {PLANNER_SAFETY:.0%} DER '
-        f'PROGNOSTIZIERTEN RESTLAUFZEIT · PRIORISIERT NACH DRINGLICHKEIT</div>',
-        unsafe_allow_html=True,
-    )
+    head_l, head_r = st.columns([5, 1], vertical_alignment="bottom")
+    with head_l:
+        st.markdown('<div class="section-title">Wartungsplan</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="section-sub">TERMINVORSCHLAG = {PLANNER_SAFETY:.0%} DER '
+            f'PROGNOSTIZIERTEN RESTLAUFZEIT · PRIORISIERT NACH DRINGLICHKEIT</div>',
+            unsafe_allow_html=True,
+        )
     status_order = {"KRITISCH": 0, "WARNUNG": 1, "OK": 2}
     due = fleet[fleet["status"].isin(("KRITISCH", "WARNUNG"))].copy()
     due["sort_key"] = due["status"].map(status_order)
@@ -986,28 +1076,54 @@ def render_maintenance_plan():
         last = truck_alerts.sort_values("timestamp").groupby("lkw_id").tail(1)
         last_reco = dict(zip(last["lkw_id"], last["recommendation"]))
 
+    # Einträge einmal berechnen – Bildschirm und CSV-Export (P-FA-10) nutzen
+    # exakt dieselben Daten.
     now = datetime.now()
+    entries = []
     for pos, (_, t) in enumerate(due.iterrows(), start=1):
         slack_h = float(t["rul_hours"]) * PLANNER_SAFETY
         deadline = now + timedelta(hours=slack_h)
-        if slack_h <= 24:
-            deadline_html = '<div class="plan-deadline now">SOFORT</div>'
-        else:
-            deadline_html = (f'<div class="plan-deadline">bis '
-                             f'{WEEKDAYS_DE[deadline.weekday()][:2]} {deadline:%d.%m.}</div>')
         reco = last_reco.get(t["lkw_id"])
         if not isinstance(reco, str) or not reco.strip():
             reco = ("Fahrzeug aus dem Verkehr ziehen, Werkstatt sofort"
                     if t["status"] == "KRITISCH" else "Wartungstermin einplanen")
+        entries.append({
+            "Priorität": pos,
+            "LKW-ID": t["lkw_id"],
+            "Fahrer": t["driver"],
+            "Status": t["status"],
+            "RUL (Stunden)": int(t["rul_hours"]),
+            "Termin bis": "SOFORT" if slack_h <= 24 else f"{deadline:%d.%m.%Y}",
+            "Maßnahme": reco,
+            "_deadline": deadline,
+            "_sofort": slack_h <= 24,
+        })
+
+    with head_r:
+        export = pd.DataFrame(entries).drop(columns=["_deadline", "_sofort"])
+        st.download_button(
+            "⬇ CSV-Export",
+            data=export.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"prema_wartungsplan_{now:%Y%m%d_%H%M}.csv",
+            mime="text/csv",
+            width="stretch",
+        )
+
+    for e in entries:
+        if e["_sofort"]:
+            deadline_html = '<div class="plan-deadline now">SOFORT</div>'
+        else:
+            deadline_html = (f'<div class="plan-deadline">bis '
+                             f'{WEEKDAYS_DE[e["_deadline"].weekday()][:2]} {e["_deadline"]:%d.%m.}</div>')
         st.markdown(f"""
-        <a class="row-link" href="{detail_href(t['lkw_id'])}" target="_self">
+        <a class="row-link" href="{detail_href(e['LKW-ID'])}" target="_self">
             <div class="plan-row">
-                <div class="plan-pos">{pos}</div>
-                <div class="truck-id">{t['lkw_id']}</div>
-                <div>{status_badge(t['status'])}</div>
+                <div class="plan-pos">{e['Priorität']}</div>
+                <div class="truck-id">{e['LKW-ID']}</div>
+                <div>{status_badge(e['Status'])}</div>
                 {deadline_html}
-                <div class="plan-reco">{reco}</div>
-                <div class="plan-rul">RUL {fmt_de(t['rul_hours'])} h</div>
+                <div class="plan-reco">{e['Maßnahme']}</div>
+                <div class="plan-rul">RUL {fmt_de(e['RUL (Stunden)'])} h</div>
             </div>
         </a>
         """, unsafe_allow_html=True)
@@ -1037,9 +1153,19 @@ def _render_replay():
             <span>LIVE-DEMO · ZEITRAFFER</span>
             <span class="replay-time">{WEEKDAYS_DE[ts.weekday()][:2]} {ts:%d.%m.%Y · %H:%M} Uhr</span>
             <div class="replay-progress"><div class="replay-progress-fill" style="width:{pct:.0f}%"></div></div>
-            <a class="replay-stop" href="{fleet_href()}" target="_self">■&nbsp;Beenden</a>
         </div>
         """, unsafe_allow_html=True)
+
+        # Benachrichtigungen: Toast wenn neue Alerts. Nur beim ersten Rendern
+        # eines Schritts – am Demo-Ende läuft das Fragment weiter, ohne dass
+        # sich der Schritt ändert, und würde sonst dieselben Toasts wiederholen.
+        if not replay_alerts.empty and st.session_state.get("replay_toasted_i") != i:
+            st.session_state.replay_toasted_i = i
+            fresh = replay_alerts[(replay_alerts["timestamp"] > prev_ts)
+                                  & (replay_alerts["timestamp"] <= ts)]
+            for ev in fresh.itertuples():
+                sev_icon = {"KRITISCH": "🚨", "WARNUNG": "⚠️", "INFO": "ℹ️"}.get(ev.severity, "ℹ️")
+                st.toast(f"{ev.lkw_id}: {ev.message}", icon=sev_icon)
 
         cur = (replay[replay["timestamp"] <= ts]
                .sort_values("timestamp").groupby("lkw_id").tail(1))
@@ -1048,19 +1174,10 @@ def _render_replay():
         _overview_kpis(fdf)
         _overview_table(fdf)
 
-        # Neue Alert-Ereignisse seit dem letzten Tick als Toast einblenden
-        if not replay_alerts.empty:
-            fresh = replay_alerts[(replay_alerts["timestamp"] > prev_ts)
-                                  & (replay_alerts["timestamp"] <= ts)]
-            toast_icons = {"KRITISCH": "🚨", "WARNUNG": "⚠️", "INFO": "ℹ️"}
-            for ev in fresh.itertuples():
-                st.toast(f"{ev.severity} · {ev.lkw_id}: {ev.message}",
-                         icon=toast_icons.get(ev.severity, "ℹ️"))
-
         if i < len(steps) - 1:
             st.session_state.replay_idx = i + 1
         else:
-            st.info("Ende der Simulation erreicht – »■ Beenden« führt zurück zur aktuellen Ansicht.")
+            st.info("Ende der Simulation erreicht – »DEMO BEENDEN« oben führt zurück zur aktuellen Ansicht.")
 
     _frame()
 
@@ -1079,6 +1196,7 @@ def render_fleet_overview():
         _render_replay()
         return
     st.session_state.replay_idx = 0
+    st.session_state.replay_toasted_i = None
 
     _overview_kpis(fleet)
 
@@ -1556,35 +1674,54 @@ def render_alert_feed():
 # SCREEN 0: ROLE SELECTION & LOGIN
 # ============================================================================
 def render_role_selection():
-    st.markdown("""
+    check = icon("check")
+    # Hinweiszeile passt sich an: mit konfigurierten Secrets ist der Zugang
+    # passwortgeschützt, ohne läuft die App im offenen Demo-Modus.
+    if _password_for("fm") or _password_for("wl"):
+        note = "Passwortgeschützter Zugang · Anmeldung erfolgt nach Rollenwahl"
+    else:
+        note = "Demo-Modus ohne Passwort · in Produktion rollenbasiert geschützt (st.secrets)"
+    st.markdown(f"""
 <div class="role-screen">
     <div class="role-screen-brand">PRE<span class="role-screen-brand-accent">MA</span></div>
     <div class="role-screen-tagline">Predictive Maintenance · Spedition Müller GmbH</div>
-    <div class="role-screen-heading">Wer bist du?</div>
+    <div class="role-screen-heading">Anmeldung</div>
+    <div class="role-screen-sub">Wählen Sie Ihre Rolle – die Ansicht passt sich Ihren Aufgaben an.</div>
     <div class="role-grid">
         <a class="role-card" href="?role=fm&view=fleet" target="_self">
-            <div class="role-card-type">Flottenmanager</div>
-            <div class="role-card-name">Thomas Müller</div>
+            <div class="role-card-head">
+                <div class="role-card-avatar">TM</div>
+                <div>
+                    <div class="role-card-type">Flottenmanager</div>
+                    <div class="role-card-name">Thomas Müller</div>
+                </div>
+            </div>
             <ul class="role-card-features">
-                <li>Flottenübersicht &amp; Statusampel</li>
-                <li>Alert-Feed aller Fahrzeuge</li>
-                <li>Kosteneinsparungs-Kalkulation</li>
-                <li>Einzelfahrzeug-Detailansicht</li>
+                <li>{check} Flottenübersicht &amp; Statusampel</li>
+                <li>{check} Alert-Feed aller Fahrzeuge</li>
+                <li>{check} Kosteneinsparungs-Kalkulation</li>
+                <li>{check} Einzelfahrzeug-Detailansicht</li>
             </ul>
-            <div class="role-card-cta">Weiter →</div>
+            <div class="role-card-cta">Anmelden →</div>
         </a>
         <a class="role-card" href="?role=wl&view=fleet" target="_self">
-            <div class="role-card-type">Werkstattleiter</div>
-            <div class="role-card-name">Stefan Berger</div>
+            <div class="role-card-head">
+                <div class="role-card-avatar">SB</div>
+                <div>
+                    <div class="role-card-type">Werkstattleiter</div>
+                    <div class="role-card-name">Stefan Berger</div>
+                </div>
+            </div>
             <ul class="role-card-features">
-                <li>Priorisierte Wartungsliste</li>
-                <li>RUL-Prognose je Fahrzeug</li>
-                <li>Wartungsfeedback erfassen</li>
-                <li>Einzelfahrzeug-Detailansicht</li>
+                <li>{check} Priorisierter Wartungsplan</li>
+                <li>{check} RUL-Prognose je Fahrzeug</li>
+                <li>{check} Wartungsfeedback erfassen</li>
+                <li>{check} Einzelfahrzeug-Detailansicht</li>
             </ul>
-            <div class="role-card-cta">Weiter →</div>
+            <div class="role-card-cta">Anmelden →</div>
         </a>
     </div>
+    <div class="role-screen-note">{icon("lock")} {note}</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1593,6 +1730,7 @@ def render_login(role: str):
     """Passwort-Abfrage für eine Rolle mit konfiguriertem Secret (NFR Zugriffsschutz)."""
     label = _role_labels.get(role, role)
     persona, _, role_name = label.partition(" · ")
+    initials = "".join(part[0] for part in persona.split()[:2]).upper()
     st.markdown("""
 <div style="text-align:center; margin-top:3.5rem; margin-bottom:1.8rem;">
     <div class="role-screen-brand" style="margin-bottom:0.25rem;">PRE<span class="role-screen-brand-accent">MA</span></div>
@@ -1603,15 +1741,21 @@ def render_login(role: str):
     with mid:
         with st.form(key=f"login_{role}"):
             st.markdown(f"""
-<div style="text-align:center; margin-bottom:0.9rem;">
-    <div class="role-card-type">{role_name or "Anmeldung"}</div>
-    <div class="role-card-name" style="margin-bottom:0;">{persona}</div>
+<div style="text-align:center; margin-bottom:1.1rem;">
+    <div class="login-avatar">{initials}</div>
+    <div class="login-name">{persona}</div>
+    <div class="role-card-type" style="margin-bottom:0;">{role_name or "Anmeldung"}</div>
 </div>
+<div class="login-field-label">Passwort</div>
 """, unsafe_allow_html=True)
             pw = st.text_input("Passwort", type="password",
-                               placeholder="Passwort eingeben",
+                               placeholder="••••••••",
                                label_visibility="collapsed")
             ok = st.form_submit_button("Anmelden", type="primary", width="stretch")
+            st.markdown(f"""
+<div class="login-divider"></div>
+<div class="login-note">{icon("lock")} Zugriff nur für autorisierte Nutzer · Spedition Müller GmbH</div>
+""", unsafe_allow_html=True)
         if ok:
             if pw == _password_for(role):
                 st.session_state[f"auth_{role}"] = True
