@@ -90,16 +90,16 @@ Stand: 12.06.2026 · (FA-x / NFR) = Pflichtenheft · (P-FA-xx) = begleitende Pr�
 
 #### Offen
 
-- [x] **Groq-Chatbot „PREMA Copilot" (LKW-Diagnose-Assistent)** — spezialisierter, thematisch eingeschränkter Chat-Assistent für Flottenmanager und Werkstattleiter in der Detailansicht (`chatbot.py`); verweigert Off-Topic-Anfragen und Prompt-Injection, kennt den Live-Zustand des gewählten LKW und hat Hintergrundwissen zu DTC-Codes, Sensorwerten und Wartungsempfehlungen
+- [x] **Groq-Chatbot „PREMA Copilot" (LKW-Diagnose-Assistent)** — spezialisierter, thematisch eingeschränkter Chat-Assistent für Flottenmanager und Werkstattleiter (`chatbot.py`); globales Sidebar-Panel auf jedem Screen, öffnet über schwebenden »✦ Copilot«-Button; verweigert Off-Topic-Anfragen und Prompt-Injection, kennt Flotte + Alert-Feed und in der Detailansicht zusätzlich die Tiefendaten des gewählten LKW
 
   **Teilaufgaben:**
   - [x] `groq`-Paket eingebunden, API-Key über `st.secrets` (`.streamlit/secrets.toml`, gitignored) oder `GROQ_API_KEY`; Modell `llama-3.3-70b-versatile`
   - [x] System-Prompt: Bot darf **nur** LKW-Diagnose, DTC-Codes, Sensoranomalien und Wartungsempfehlungen beantworten; Off-Topic und „ignoriere deine Anweisungen" werden in einem Satz abgelehnt (live getestet)
-  - [x] Dynamische Kontextinjektion: Status, Sensorwerte, RUL inkl. Flottenrang, letzte 8 Alerts mit DTC sowie ML-Metriken werden pro Truck in den Prompt geladen
+  - [x] Dynamische Kontextinjektion: Flottentabelle + Alert-Feed immer; in der Detailansicht zusätzlich Sensorwerte, RUL mit Flottenrang und letzte 8 Alerts des Fokus-LKW; ML-Metriken
   - [x] Statisches Hintergrundwissen: DTC-Referenz, Sensor-Schwellwerte, Status-/RUL-Logik und Kostenmodell als autoritativer Prompt-Block (kein RAG im MVP)
   - [x] Rollenbasierte Antworttiefe: WL bekommt Prüfschritte und Rohwerte, FM betriebliche Konsequenzen und Handlungsempfehlung
-  - [x] Chat-UI: `st.chat_message` / `st.chat_input` mit Streaming, Einstiegsfragen als Pills, eigenes Styling im PREMA-Design, in der Detailansicht
-  - [x] Gesprächs-Reset je LKW und Rolle (`st.session_state`-Key pro Truck), „Neuer Chat"-Button
+  - [x] Chat-UI: Sidebar-Panel mit `st.chat_message` / `st.chat_input`, Streaming, rollenspezifische Einstiegsfragen als Pills, Kontext-Chip („Flotte" / „Flotte + LKW-xx"), PREMA-Design
+  - [x] Gesprächsverlauf pro Rolle (`st.session_state`), „Neuer Chat"-Button; kein Auto-Scroll in der Detailansicht, da der Chat nicht mehr im Seiteninhalt liegt
 
   **Offen:**
   - [ ] API-Key rotieren (wurde im Klartext geteilt) und in Streamlit Cloud Secrets hinterlegen

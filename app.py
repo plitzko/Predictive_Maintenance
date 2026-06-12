@@ -28,7 +28,7 @@ import streamlit as st
 # geladen wird (AppTest im Smoke-Test, Streamlit Cloud)
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
-from chatbot import render_chat_assistant
+from chatbot import render_chat_sidebar
 
 # ============================================================================
 # Konstanten (Schwellenwerte & Kostenmodell, vgl. Pflichtenheft FA-5/FA-7)
@@ -1536,9 +1536,6 @@ def render_truck_detail():
                 save_feedback(truck_id, "Fehlalarm", truck["status"])
                 st.success(f"Feedback für {truck_id} gespeichert: Fehlalarm.")
 
-    # PREMA Copilot: rollenbewusster Groq-Diagnose-Assistent für dieses Fahrzeug
-    render_chat_assistant(truck, fleet, truck_alerts, ml_metrics)
-
 
 # ============================================================================
 # SCREEN 3: ALERT FEED
@@ -1798,6 +1795,16 @@ elif st.session_state.view == "plan" and st.session_state.role == "wl":
     render_maintenance_plan()
 else:
     render_fleet_overview()
+
+# PREMA Copilot: globales Diagnose-Panel in der Sidebar, auf jedem Screen
+# über den schwebenden »✦ Copilot«-Button erreichbar. In der Detailansicht
+# bekommt der Bot zusätzlich die Tiefendaten des gewählten Fahrzeugs.
+if st.session_state.role:
+    _focus_rows = (fleet[fleet["lkw_id"] == st.session_state.selected_truck]
+                   if st.session_state.view == "detail" and st.session_state.selected_truck
+                   else fleet.iloc[0:0])
+    render_chat_sidebar(fleet, alerts, truck_alerts, ml_metrics,
+                        truck=None if _focus_rows.empty else _focus_rows.iloc[0])
 
 # Footer
 st.markdown("""
