@@ -89,13 +89,13 @@ Dashboard zeigt sie in der Flottenansicht unter "ML-Modellguete" (FA-6).
 
 - **Skript 12 (Random Forest, RUL)** schaetzt Tage bis zum Health-Score-
   Unterschreiten der Schadensschwelle. `health_score` ist bewusst **kein**
-  Feature mehr (das Label ist daraus abgeleitet — Ziel-Leakage); ehrliche
+  Feature mehr (Ziel-Leakage vermieden); ehrliche
   Metriken: MAE 13,1 Tage, R² 0,45.
 - **Skript 15 (Isolation Forest, Anomalien)** misst Abweichung vom
   Normalverhalten der ersten 14 Tage je LKW. Erkennt Sensor-Drift und Outlier,
   ist aber kein Beweis fuer einen tatsaechlichen Defekt.
 - **Skript 16 (XGBoost, Klassifikation)** klassifiziert ohne `health_score`
-  als Feature: Accuracy 0,76, Recall KRITISCH 0,86 (FA-4-Ziel ≥ 0,85 erfuellt).
+  als Feature: Accuracy 0,758, Recall KRITISCH 0,859 (FA-4-Ziel ≥ 0,85 erfuellt).
 
 Kurzform: Die Ergebnisse zeigen, dass der Simulator **in sich konsistent**
 ist. Sie sind kein Beweis fuer reale Predictive-Maintenance-Signalstaerke.
@@ -329,6 +329,7 @@ Vollstaendige Liste mit Anforderungs-Status: siehe `TASKS.md`.
 
 - ML-Modelle im Adapter per `predict()` anwenden (statt Schwellen-Heuristik).
 - Echte REST-APIs (OpenWeatherMap, CarAPI) + E-Mail-Mock fuer kritische Alerts.
+- **PREMA-Copilot**: Integration eines LLM-Chatbots (Groq/Llama 3) zur Analyse des Flottenzustands.
 - Naechtlicher Retraining-Job mit Qualitaets-Gate (FA-8).
 - Sauberer zeitlicher Train/Test-Split fuer RUL statt Zufallssplit.
 - Persistenter Storage (z. B. TimescaleDB) statt CSV.

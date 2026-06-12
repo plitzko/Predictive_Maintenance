@@ -25,7 +25,7 @@ Predictive-Maintenance-MVP für LKW-Flotten · Big Data SS2026 · Team 1 · Stan
 | Bereich | Stand | Kurzfassung |
 | --- | --- | --- |
 | Datensimulation & Pipeline | ✅ | 10 LKW, 90 Tage, Seed 42 — reproduzierbar, Feature Engineering 22 → 75 Spalten |
-| ML-Modelle | ✅ | Isolation Forest, XGBoost (Recall KRITISCH 0,86), Random-Forest-RUL — trainiert & evaluiert |
+| ML-Modelle | ✅ | Isolation Forest (FPR 9,1%), XGBoost (Recall 0,859), Random-Forest-RUL (MAE 13,1 Tage) — trainiert |
 | Alert-Engine | ✅ | 3 Stufen, DTC-Codes, Handlungsempfehlung, Kosteneinsparung pro Alert |
 | Dashboard | ✅ | 4 Screens, Rollen-Login, Live-Demo-Zeitraffer, CSV-Exporte, Light/Dark |
 | Demo-Szenario (LKW-01) | 🔄 | Szenario steht — Generalprobe für den Pitch |
@@ -56,7 +56,7 @@ Predictive-Maintenance-MVP für LKW-Flotten · Big Data SS2026 · Team 1 · Stan
 - [x] OBD-II-Simulator: 10 LKW, 90 Tage, Seed 42, Beladung↔Verschleiß physikalisch modelliert (FA-1)
 - [x] Feature Engineering: 22 → 75 Spalten — Rolling Means, Deltas, Lags, Baselines (FA-1)
 - [x] Isolation Forest mit 14-Tage-Baseline, False-Positive-Rate 9,1 % (< 10 % gefordert) (FA-3)
-- [x] XGBoost-Klassifikation: Recall KRITISCH 0,86 (Ziel ≥ 0,85 erreicht), Accuracy 0,76 (FA-4)
+- [x] XGBoost-Klassifikation: Recall KRITISCH 0,859 (Ziel ≥ 0,85 erreicht), Accuracy 0,758 (FA-4)
 - [x] RUL-Prognose (Random Forest): MAE 13,1 Tage — ohne Ziel-Leakage, ehrliche Metriken (FA-4)
 - [x] Statusgrenzen validiert: WARNUNG → KRITISCH mit min. 14,6 Tagen Vorlauf (FA-5)
 - [x] ML-Metriken im Dashboard sichtbar (FA-6)
@@ -79,10 +79,10 @@ Predictive-Maintenance-MVP für LKW-Flotten · Big Data SS2026 · Team 1 · Stan
 - [x] Docker-Setup: ein Befehl, Pipeline läuft beim Start automatisch mit (NFR)
 - [x] Demo-Snapshot Tag 49 + Saison-Fix: Wetter passt zur realen Jahreszeit (FA-7)
 - [x] Replay-Export für den Live-Demo-Zeitraffer (FA-7)
+- [x] 🔄 Mind. 3 DTC-Codes im Feed sichtbar — *bis zum Pitch (Fokus #2)*
 
 #### Offen (Walter)
 
-- [ ] 🔄 Mind. 3 DTC-Codes im Feed sichtbar — *bis zum Pitch (Fokus #2)*
 - [ ] 🔄 E-Mail-Mock für kritische Alerts — *bis zum Pitch (Fokus #3)*
 - [ ] ⬜ Echter OpenWeatherMap-Call mit Fallback (Vorlage in Skript `07` vorhanden) (FA-2)
 - [ ] ⬜ Docker-Durchlauf einmal frisch auf zweitem Rechner verifizieren (NFR)
