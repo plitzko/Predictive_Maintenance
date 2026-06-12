@@ -1,0 +1,14 @@
+{
+  "rul_mae_days": 13.07,
+  "rul_r2": 0.4466,
+  "clf_accuracy": 0.7579,
+  "clf_macro_f1": 0.7581,
+  "clf_recall_critical": 0.8593,
+  "anomaly_model": "Isolation Forest (kalibriert, Baseline 14 Tage)",
+  "source_file": "engine_data_with_rul.csv",
+  "snapshot_day": 49,
+  "n_trucks": 10,
+  "n_rows": 23520,
+  "n_replay_rows": 19680,
+  "generated_at": "2026-06-12T20:45:04"
+}

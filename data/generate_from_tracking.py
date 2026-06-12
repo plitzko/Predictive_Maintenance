@@ -280,6 +280,10 @@ def main() -> None:
     src["motor_temp_c"]     = src["Coolant temp"].round(1)
     src["oil_pressure_bar"] = src["Lub oil pressure"].round(2)
     src["max_z_abs"]        = src["max_z_score"].abs().fillna(0)
+    # Weitere Rohsensoren fuer die Detailseite (Sensorleiste)
+    src["engine_rpm"]        = src["Engine rpm"].round(0)
+    src["fuel_pressure_bar"] = src["Fuel pressure"].clip(lower=0).round(2)
+    src["oil_temp_c"]        = src["lub oil temp"].round(1)
 
     if has_health_score:
         src["status"] = src["health_score"].map(_classify_status_hs)
@@ -306,7 +310,7 @@ def main() -> None:
     FLEET_COLS = [
         "lkw_id", "driver", "status", "motor_temp_c", "brake_fluid_pct",
         "oil_pressure_bar", "tire_fl_bar", "tire_fr_bar", "rul_hours",
-        "km_total", "load_pct",
+        "km_total", "load_pct", "engine_rpm", "fuel_pressure_bar", "oil_temp_c",
     ]
     snap = src[snap_mask]
     fleet_rows = []
@@ -325,9 +329,10 @@ def main() -> None:
 
     # -- timeseries.csv: letzte 144 Schritte je LKW = 72 h --------------------
     ts_rows = snap.groupby("truck_id", group_keys=False).tail(144)
-    ts_rows[["lkw_id", "timestamp", "brake_fluid_pct", "motor_temp_c", "oil_pressure_bar"]].to_csv(
-        OUTPUT_DIR / "timeseries.csv", index=False
-    )
+    ts_cols = ["lkw_id", "timestamp", "brake_fluid_pct", "motor_temp_c", "oil_pressure_bar"]
+    if has_health_score:
+        ts_cols.append("health_score")  # fuer das Health-Score-Chart der Detailseite
+    ts_rows[ts_cols].to_csv(OUTPUT_DIR / "timeseries.csv", index=False)
 
     # -- Alert-Ereignisse (dedupliziert) fuer Feed und Historie ---------------
     events = _build_alert_events(src)
@@ -390,6 +395,14 @@ def main() -> None:
     history.sort_values("timestamp", ascending=False)[
         ["timestamp", "lkw_id", "severity", "message", "dtc_code", "recommendation"]
     ].head(400).to_csv(OUTPUT_DIR / "truck_alerts.csv", index=False)
+
+    # rul_history.csv: Tagesmedian der RUL-Prognose je LKW (letzte 30 Tage)
+    # fuer den Prognose-Verlauf auf der Detailseite.
+    rul_hist = snap[snap["timestamp"] >= cutoff_30d].copy()
+    rul_hist["timestamp"] = rul_hist["timestamp"].dt.floor("D")
+    rul_hist = rul_hist.groupby(["lkw_id", "timestamp"], as_index=False)["rul_hours"].median()
+    rul_hist["rul_hours"] = rul_hist["rul_hours"].round(0)
+    rul_hist.to_csv(OUTPUT_DIR / "rul_history.csv", index=False)
 
     # -- Replay-Daten: Messungen nach dem Snapshot fuer den Live-Demo-Modus ---
     # Status und RUL werden wie in fleet.csv ueber 24 h (48 Schritte) geglaettet,

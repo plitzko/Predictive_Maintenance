@@ -1,0 +1,11 @@
+timestamp,severity,lkw_id,message,source,savings_eur,dtc_code,recommendation,temperature_c,weather,load_pct,route_type
+2026-06-12 16:30:00,WARNUNG,LKW-04,Auffaelliges Muster: Lub oil pressure,XGBoost-Klassifikation,400,,Wartungstermin innerhalb 14 Tagen einplanen,24.6,Trocken,44.0,Stadtverkehr
+2026-06-12 08:30:00,KRITISCH,LKW-01,Motorueberhitzung erkannt,XGBoost-Klassifikation,600,P0217,"Sofortiger Halt, Kuehlsystem pruefen",24.6,Trocken,64.0,Stadtverkehr
+2026-06-11 02:00:00,INFO,LKW-04,Anomalie erkannt: Fuel pressure (z=3.3),Isolation Forest,0,,"Beobachten, keine sofortige Massnahme noetig",23.2,Regen,72.0,Autobahn
+2026-06-10 07:00:00,WARNUNG,LKW-09,Auffaelliges Muster: Lub oil pressure,XGBoost-Klassifikation,400,,Wartungstermin innerhalb 14 Tagen einplanen,25.0,Trocken,71.0,Landstrasse
+2026-06-09 04:30:00,INFO,LKW-04,Anomalie erkannt: lub oil temp (z=4.1),Isolation Forest,0,,"Beobachten, keine sofortige Massnahme noetig",22.9,Trocken,78.0,Autobahn
+2026-06-08 17:00:00,INFO,LKW-09,Anomalie erkannt: Fuel pressure (z=3.5),Isolation Forest,0,,"Beobachten, keine sofortige Massnahme noetig",22.4,Trocken,76.0,Autobahn
+2026-06-08 15:30:00,INFO,LKW-06,Anomalie erkannt: Fuel pressure (z=3.8),Isolation Forest,0,,"Beobachten, keine sofortige Massnahme noetig",22.4,Trocken,84.0,Autobahn
+2026-06-08 10:00:00,INFO,LKW-09,Anomalie erkannt: lub oil temp (z=3.6),Isolation Forest,0,,"Beobachten, keine sofortige Massnahme noetig",22.4,Trocken,76.0,Autobahn
+2026-06-06 07:00:00,INFO,LKW-04,Anomalie erkannt: Lub oil pressure (z=3.4),Isolation Forest,0,,"Beobachten, keine sofortige Massnahme noetig",19.8,Trocken,46.0,Stadtverkehr
+2026-06-06 04:30:00,INFO,LKW-09,Anomalie erkannt: lub oil temp (z=3.5),Isolation Forest,0,,"Beobachten, keine sofortige Massnahme noetig",19.8,Trocken,83.0,Autobahn

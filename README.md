@@ -7,8 +7,8 @@ OBD-II-nahe Telemetriedaten, erkennt kritische Zustaende, ordnet DTC-Codes zu
 und schaetzt eine Remaining Useful Life (RUL) pro Fahrzeug. Das Ergebnis ist
 ein interaktives Streamlit-Dashboard mit rollenbasiertem Login und vier
 Ansichten: Flottenübersicht (inkl. Live-Demo-Zeitraffer), Fahrzeugdetail
-(inkl. RUL-Prognoselinie), Alert-Feed (Flottenmanager) und Wartungsplan
-mit CSV-Export (Werkstattleiter).
+(inkl. Health-Score, RUL-Prognose, Sensor-Verlauf 72 h), Alert-Feed 
+(Flottenmanager) und Wartungsplan mit CSV-Export (Werkstattleiter).
 
 ## Architektur
 
@@ -22,7 +22,8 @@ Zwei parallele Arbeitsstroeme wurden zusammengefuehrt:
   URL-Navigation, Custom CSS.
 
 Der Adapter `data/generate_from_tracking.py` verbindet beide: er liest die
-Pipeline-Ausgabe und schreibt die vier CSVs, die das Dashboard erwartet.
+Pipeline-Ausgabe und schreibt die Dashboard-CSVs (fleet, timeseries, alerts,
+truck_alerts, replay, rul_history) sowie metrics.json.
 
 ## Datenpfad (Phase 4)
 
@@ -39,6 +40,7 @@ Pipeline-Ausgabe und schreibt die vier CSVs, die das Dashboard erwartet.
 data/generate_from_tracking.py
     → data/fleet.csv, timeseries.csv, alerts.csv, truck_alerts.csv
     → data/replay.csv, replay_alerts.csv   (Live-Demo-Zeitraffer)
+    → data/rul_history.csv                 (Tagesmedian RUL, 30 Tage)
     → data/metrics.json
 app.py  (liest die CSVs, ruft Adapter beim Start automatisch auf)
 ```
@@ -274,10 +276,32 @@ falls `engine_data_with_rul.csv` fehlt oder veraltet ist.
 
 Health-Check: `http://localhost:8501/_stcore/health`
 
+## Detailseite: Datenvisualisierungen
+
+Die Fahrzeugdetail-Seite integriert umfangreiche Zeitreihen und Indikatoren:
+
+- **Health-Score-Verlauf** (72 h): ML-Gesundheitsindex (0–1) mit Warn-/Kritisch-Schwellen
+  als Grundlage der Statusampel.
+- **Sensor-Balken**: 7 Sensoren (Motortemp, Öldruck, Bremsflüssigkeit, Motordrehzahl,
+  Kraftstoffdruck, Öltemperatur, Reifendruck VL/VR) mit Schwellenmarkern.
+- **Bremsflüssigkeits-Chart** (72 h): Historischer Verlauf + Warn-/Kritisch-Grenze
+  + RUL-Prognoselinie + Alert-Marker.
+- **Motor-/Öldruck-Charts** (72 h): Tagesgetriebene Sensor-Dynamik.
+- **RUL-Prognose-Verlauf** (30 Tage): Tagesmedian der Restlaufzeit-Vorhersage,
+  zeigt wie das Modell die verbleibende Zeit aktualisiert.
+- **RUL-Flottenvergleich**: Einzelfahrzeug vs. Flotte (Bar-Chart, aktuell markiert).
+- **Alert-Verlauf** (30 Tage): DTC-Codes, Empfehlungen, zeitliche Historie.
+- **Wartungsfeedback** (Werkstattleiter): Zeigt zuletzt erfasstes Feedback
+  (Wartung bestätigt / Fehlalarm) mit Zeitstempel.
+
+Alle Charts mit interaktiven Tooltips, responsive bei Light/Dark-Mode,
+durchgängig mit einheitlicher Farbcodierung (health_score / Status).
+
 ## Kernergebnisse
 
 - Simulator: 10 LKW, 90 Tage, 30-Minuten-Takt, 43.200 Zeilen.
-- Zusatzsensoren: Reifendruck, Bremsfluessigkeit, Kilometerstand.
+- Zusatzsensoren: Reifendruck, Bremsfluessigkeit, Kilometerstand, Motordrehzahl,
+  Kraftstoff-/Öltemperatur.
 - Health Score: fahrzeugbezogene Verschleisskurve mit Last-, Routen- und
   Wettereinfluss. 9 von 10 LKW unterschreiten die Schadensschwelle (0,5)
   innerhalb von 90 Tagen.
