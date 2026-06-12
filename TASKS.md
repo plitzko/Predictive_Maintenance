@@ -80,7 +80,19 @@ Legende: `[x]` erledigt · `[ ]` offen · (FA-x / NFR) = Referenz ins Pflichtenh
 
 #### Offen
 
-- [ ] AI-Chatbot auf Groq-Basis — Chat-Assistent im Dashboard, der Fragen zur Flotte beantwortet und bei der Bedienung hilft (z. B. „Welche LKW sind kritisch?", „Was bedeutet DTC P0217?"); Anbindung über die Groq-API (`groq`-SDK, Llama-Modell), API-Key über `st.secrets`/`.env`, Kontext aus `fleet.csv`, `alerts.csv` und ML-Metriken mitgeben
+- [x] **Groq-Chatbot „PREMA Copilot" (LKW-Diagnose-Assistent)** — spezialisierter, thematisch eingeschränkter Chat-Assistent für Flottenmanager und Werkstattleiter in der Detailansicht (`chatbot.py`); verweigert Off-Topic-Anfragen und Prompt-Injection, kennt den Live-Zustand des gewählten LKW und hat Hintergrundwissen zu DTC-Codes, Sensorwerten und Wartungsempfehlungen
+
+  **Teilaufgaben:**
+  - [x] `groq`-Paket eingebunden, API-Key über `st.secrets` (`.streamlit/secrets.toml`, gitignored) oder `GROQ_API_KEY`; Modell `llama-3.3-70b-versatile`
+  - [x] System-Prompt: Bot darf **nur** LKW-Diagnose, DTC-Codes, Sensoranomalien und Wartungsempfehlungen beantworten; Off-Topic und „ignoriere deine Anweisungen" werden in einem Satz abgelehnt (live getestet)
+  - [x] Dynamische Kontextinjektion: Status, Sensorwerte, RUL inkl. Flottenrang, letzte 8 Alerts mit DTC sowie ML-Metriken werden pro Truck in den Prompt geladen
+  - [x] Statisches Hintergrundwissen: DTC-Referenz, Sensor-Schwellwerte, Status-/RUL-Logik und Kostenmodell als autoritativer Prompt-Block (kein RAG im MVP)
+  - [x] Rollenbasierte Antworttiefe: WL bekommt Prüfschritte und Rohwerte, FM betriebliche Konsequenzen und Handlungsempfehlung
+  - [x] Chat-UI: `st.chat_message` / `st.chat_input` mit Streaming, Einstiegsfragen als Pills, eigenes Styling im PREMA-Design, in der Detailansicht
+  - [x] Gesprächs-Reset je LKW und Rolle (`st.session_state`-Key pro Truck), „Neuer Chat"-Button
+
+  **Offen:**
+  - [ ] API-Key rotieren (wurde im Klartext geteilt) und in Streamlit Cloud Secrets hinterlegen
 
 ### Person B — Detailansicht, Visualisierung & Demo
 

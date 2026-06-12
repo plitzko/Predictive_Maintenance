@@ -24,6 +24,12 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+# App-Verzeichnis in den Modulpfad: nötig, wenn das Skript von außerhalb
+# geladen wird (AppTest im Smoke-Test, Streamlit Cloud)
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+from chatbot import render_chat_assistant
+
 # ============================================================================
 # Konstanten (Schwellenwerte & Kostenmodell, vgl. Pflichtenheft FA-5/FA-7)
 # ============================================================================
@@ -1411,6 +1417,9 @@ def render_truck_detail():
             if st.button("Fehlalarm", key=f"fb_fa_{truck_id}"):
                 save_feedback(truck_id, "Fehlalarm", truck["status"])
                 st.success(f"Feedback für {truck_id} gespeichert: Fehlalarm.")
+
+    # PREMA Copilot: rollenbewusster Groq-Diagnose-Assistent für dieses Fahrzeug
+    render_chat_assistant(truck, fleet, truck_alerts, ml_metrics)
 
 
 # ============================================================================

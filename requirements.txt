@@ -3,6 +3,7 @@ streamlit>=1.49.0  # width="stretch"-API (ersetzt use_container_width)
 pandas>=2.2.2
 altair>=5.3.0
 numpy>=2.0.0
+groq>=0.13.0  # PREMA Copilot (Diagnose-Chatbot, chatbot.py)
 
 # ML Pipeline
 matplotlib==3.9.2

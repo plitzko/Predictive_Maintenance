@@ -1,7 +1,1 @@
 timestamp,severity,lkw_id,message,source,savings_eur,dtc_code,recommendation,temperature_c,weather,load_pct,route_type
-2026-06-16 23:00:00,INFO,LKW-06,Anomalie erkannt: Coolant temp (z=3.3),Isolation Forest,0,,"Beobachten, keine sofortige Massnahme noetig",21.9,Trocken,48.0,Landstrasse
-2026-06-17 10:00:00,KRITISCH,LKW-03,Kuehlmitteldruck ausserhalb Normbereich,XGBoost-Klassifikation,600,P0191,Kuehlsystem und Drucksensor pruefen,21.9,Trocken,84.0,Autobahn
-2026-06-17 17:30:00,WARNUNG,LKW-06,Auffaelliges Muster: Fuel pressure,XGBoost-Klassifikation,400,,Wartungstermin innerhalb 14 Tagen einplanen,21.9,Trocken,63.0,Landstrasse
-2026-07-03 13:30:00,KRITISCH,LKW-05,Motordrehzahl kritisch erhoeht,XGBoost-Klassifikation,600,P0219,"Motorlast reduzieren, Drehzahlregler pruefen",20.8,Trocken,80.0,Autobahn
-2026-07-11 09:30:00,KRITISCH,LKW-09,Motordrehzahl kritisch erhoeht,XGBoost-Klassifikation,600,P0219,"Motorlast reduzieren, Drehzahlregler pruefen",26.8,Trocken,28.0,Stadtverkehr
-2026-07-22 15:30:00,KRITISCH,LKW-04,Motordrehzahl kritisch erhoeht,XGBoost-Klassifikation,600,P0219,"Motorlast reduzieren, Drehzahlregler pruefen",26.3,Trocken,35.0,Stadtverkehr
