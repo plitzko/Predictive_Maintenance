@@ -39,6 +39,8 @@ from chatbot import render_chat_sidebar
 BRAKE_WARN_PCT = 68      # Warnschwelle Bremsflüssigkeit (%)
 BRAKE_CRIT_PCT = 50      # Kritische Schwelle Bremsflüssigkeit (%)
 MOTOR_TEMP_CRIT_C = 95   # Kritische Motortemperatur (°C)
+HEALTH_WARN = 0.7        # Health-Score-Schwelle WARNUNG (vgl. Adapter/XGBoost)
+HEALTH_CRIT = 0.5        # Health-Score-Schwelle KRITISCH
 OIL_PRESSURE_WARN_BAR = 2.5  # Warnschwelle Öldruck (bar)
 COST_PER_HOUR_EUR = 600  # Kosten pro Stillstandsstunde (Pflichtenheft: 500-700 €)
 HOURS_PER_BREAKDOWN = 4  # Angenommene Standzeit pro vermiedener Panne
@@ -54,10 +56,12 @@ WEEKDAYS_DE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag",
 SEVERITIES = ("KRITISCH", "WARNUNG", "INFO")
 ALERT_FILTERS = ("ALLE",) + SEVERITIES
 
-COLOR_CRIT = "#FF3D4C"
-COLOR_WARN = "#FFA500"
-COLOR_OK = "#32C759"
-COLOR_INFO = "#2B6CB0"
+# Statusfarben: Rot ist exklusiv für KRITISCH reserviert, die Marken-/
+# Interaktionsfarbe (Blau) liegt als --p-brand im CSS.
+COLOR_CRIT = "#E5484D"
+COLOR_WARN = "#F59E0B"
+COLOR_OK = "#10B981"
+COLOR_INFO = "#3B82F6"
 
 # ============================================================================
 # Page config
@@ -79,15 +83,18 @@ st.markdown("""
     /* ── Design tokens – accent colors bleiben fix, alles andere
        nutzt Streamlits eigene CSS-Variablen (auto Light/Dark)      */
     :root {
-        --p-accent:  #FF3D4C;
-        --p-glow:    rgba(255,61,76,0.25);
-        --p-ok:      #32C759;
-        --p-warn:    #FFA500;
-        --p-info:    #2B6CB0;
+        /* Marke & Interaktion (Navigation, aktive Zustände) */
+        --p-brand:       #2563EB;
+        --p-brand-light: #60A5FA;
+        /* Statusfarben – Rot ist exklusiv für KRITISCH reserviert */
+        --p-crit:    #E5484D;
+        --p-ok:      #10B981;
+        --p-warn:    #F59E0B;
+        --p-info:    #3B82F6;
         /* Rahmen & Schatten: rgba-Basis funktioniert in beiden Modi */
         --p-border:  rgba(120,120,140,0.22);
-        --p-shadow:  0 1px 4px rgba(0,0,0,0.1), 0 0 0 1px rgba(120,120,140,0.12);
-        --p-shadow-hover: 0 4px 14px rgba(0,0,0,0.15), 0 0 0 1px rgba(120,120,140,0.18);
+        --p-shadow:  0 1px 3px rgba(0,0,0,0.07), 0 0 0 1px rgba(120,120,140,0.1);
+        --p-shadow-hover: 0 2px 8px rgba(0,0,0,0.1), 0 0 0 1px rgba(120,120,140,0.16);
     }
 
     /* ── Fonts ── */
@@ -111,13 +118,15 @@ st.markdown("""
         border-radius: 8px;
         margin-bottom: 1rem;
         font-family: 'Plus Jakarta Sans', sans-serif;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.3), inset 0 -2px 0 var(--p-accent);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3), inset 0 -2px 0 var(--p-brand);
     }
     .header-brand {
         font-size: 1.25rem; font-weight: 700; letter-spacing: 0.08em;
         display: flex; align-items: center; gap: 0.65rem;
     }
-    .header-brand-accent { color: var(--p-accent); }
+    .header-brand-accent { color: var(--p-brand-light); }
+    .header-logo { display: inline-flex; width: 20px; height: 20px; color: var(--p-brand-light); flex: none; }
+    .header-logo svg { width: 100%; height: 100%; }
     .header-tagline {
         font-size: 0.6rem; font-weight: 600; letter-spacing: 0.16em;
         text-transform: uppercase; color: rgba(255,255,255,0.38);
@@ -145,8 +154,7 @@ st.markdown("""
         text-decoration: none !important;
     }
     .nav-button.active,.nav-button.detail {
-        background: var(--p-accent); color: #FFF; border-color: var(--p-accent);
-        box-shadow: 0 4px 12px var(--p-glow);
+        background: var(--p-brand); color: #FFF; border-color: var(--p-brand);
     }
     .nav-button.detail { cursor: default; }
     .nav-button.inactive {
@@ -154,31 +162,30 @@ st.markdown("""
         color: var(--text-color);
         border-color: var(--p-border);
     }
-    .nav-button.inactive:hover { border-color: var(--p-accent); }
+    .nav-button.inactive:hover { border-color: var(--p-brand); }
     .nav-count {
         display: inline-flex; align-items: center; justify-content: center;
         min-width: 1.3rem; height: 1.3rem; padding: 0 0.3rem;
         border-radius: 99px; font-size: 0.68rem; font-weight: 700;
-        background: var(--p-accent); color: #FFF;
+        background: var(--p-crit); color: #FFF;
     }
     .nav-button.active .nav-count { background: rgba(255,255,255,0.25); }
-    /* Live-Demo: rechtsbündiger Pill in der Navigation */
+    /* Live-Demo: rechtsbündiger Pill in der Navigation (bewusst rot als
+       Eyecatcher – einzige Ausnahme von »Rot nur für KRITISCH«) */
     .nav-button.demo {
         margin-left: auto;
-        background: transparent; color: var(--p-accent);
-        border: 1px solid var(--p-accent);
+        background: transparent; color: var(--p-crit);
+        border: 1px solid var(--p-crit);
         font-size: 0.78rem; letter-spacing: 0.06em; font-weight: 700;
     }
     .nav-button.demo:hover {
-        background: var(--p-accent); color: #FFF;
-        box-shadow: 0 4px 12px var(--p-glow);
+        background: var(--p-crit); color: #FFF;
     }
     .nav-button.demo.running {
-        background: var(--p-accent); color: #FFF; border-color: var(--p-accent);
-        box-shadow: 0 4px 12px var(--p-glow);
+        background: var(--p-crit); color: #FFF; border-color: var(--p-crit);
     }
     .nav-button.demo.running .replay-dot { background: #FFF; }
-    .nav-button.demo .demo-glyph { font-size: 0.66rem; }
+    .nav-button.demo svg { width: 11px; height: 11px; flex: none; }
 
     /* ── KPI-Cards ── */
     .kpi-grid {
@@ -189,29 +196,25 @@ st.markdown("""
     .kpi-card {
         background: var(--background-color);
         border: 1px solid var(--p-border);
-        border-left: 5px solid var(--text-color);
         padding: 0.9rem 1rem; border-radius: 6px;
         box-shadow: var(--p-shadow);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        transition: box-shadow 0.2s ease;
     }
-    .kpi-card:hover { box-shadow: var(--p-shadow-hover); transform: translateY(-2px); }
+    .kpi-card:hover { box-shadow: var(--p-shadow-hover); }
     .kpi-card-header { display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.35rem; }
     .kpi-card-icon { display: inline-flex; width: 15px; height: 15px; color: var(--text-color); opacity: 0.55; flex: none; }
     .kpi-card-icon svg { width: 100%; height: 100%; }
-    .kpi-card.critical .kpi-card-icon { color: var(--p-accent); opacity: 1; }
+    .kpi-card.critical .kpi-card-icon { color: var(--p-crit); opacity: 1; }
     .kpi-card.warning  .kpi-card-icon { color: var(--p-warn);   opacity: 1; }
     .kpi-card.ok       .kpi-card-icon { color: var(--p-ok);     opacity: 1; }
     .kpi-card.critical {
-        border-left-color: var(--p-accent);
-        background: color-mix(in srgb, #FF3D4C 6%, var(--background-color));
+        background: color-mix(in srgb, #E5484D 6%, var(--background-color));
     }
     .kpi-card.warning {
-        border-left-color: var(--p-warn);
-        background: color-mix(in srgb, #FFA500 6%, var(--background-color));
+        background: color-mix(in srgb, #F59E0B 6%, var(--background-color));
     }
     .kpi-card.ok {
-        border-left-color: var(--p-ok);
-        background: color-mix(in srgb, #32C759 6%, var(--background-color));
+        background: color-mix(in srgb, #10B981 6%, var(--background-color));
     }
     .kpi-link,.kpi-link *,.kpi-link:visited,.kpi-link:hover,.kpi-link:active {
         color: inherit !important; text-decoration: none !important;
@@ -237,7 +240,7 @@ st.markdown("""
         font-family: 'Plus Jakarta Sans','Inter',sans-serif;
         width: 86px; min-width: 86px; text-align: center; box-sizing: border-box;
     }
-    .badge-critical { background: var(--p-accent); color: #FFF; }
+    .badge-critical { background: var(--p-crit); color: #FFF; }
     .badge-warning  { background: var(--p-warn);   color: #FFF; }
     .badge-ok       { background: var(--p-ok);     color: #FFF; }
     .badge-info     { background: var(--p-info);   color: #FFF; }
@@ -252,17 +255,25 @@ st.markdown("""
     .sensor-label { font-size: 0.8rem; color: var(--text-color); font-weight: 500; }
 
     /* ── Status-Dot ── */
-    .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
-    .status-dot-kritisch { background: var(--p-accent); }
-    .status-dot-warnung  { background: var(--p-warn); }
-    .status-dot-ok       { background: var(--p-ok); }
+    .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+    .status-dot-kritisch { background: var(--p-crit); box-shadow: 0 0 0 3px rgba(229,72,77,0.18); }
+    .status-dot-warnung  { background: var(--p-warn); box-shadow: 0 0 0 3px rgba(245,158,11,0.18); }
+    .status-dot-ok       { background: var(--p-ok);   box-shadow: 0 0 0 3px rgba(16,185,129,0.18); }
     .sensor-bar-bg {
-        height: 6px; background: var(--secondary-background-color);
-        border-radius: 3px; overflow: hidden;
+        position: relative; height: 6px;
+        background: var(--secondary-background-color);
+        border-radius: 3px;
     }
     .sensor-bar-fill { height: 100%; border-radius: 3px; }
+    /* Schwellenmarker auf den Sensor-Balken (Warn-/Kritisch-Grenze) */
+    .sensor-mark {
+        position: absolute; top: -2px; bottom: -2px; width: 2px;
+        border-radius: 1px; opacity: 0.65;
+    }
+    .sensor-mark-warn { background: var(--p-warn); }
+    .sensor-mark-crit { background: var(--p-crit); }
     .sensor-value {
-        font-family: 'Inter',monospace; font-size: 0.8rem;
+        font-variant-numeric: tabular-nums; font-size: 0.8rem;
         font-weight: 600; text-align: right; color: var(--text-color);
     }
 
@@ -272,17 +283,17 @@ st.markdown("""
         grid-template-columns: 88px 86px 66px minmax(0,1fr) 78px;
         gap: 0.65rem; align-items: center; padding: 0.55rem 0.7rem;
         border-bottom: 1px solid var(--p-border);
-        border-radius: 4px; margin-bottom: 0.3rem; font-size: 0.82rem;
+        font-size: 0.82rem;
         transition: background 0.15s; cursor: pointer; color: var(--text-color);
     }
     .alert-row.history { grid-template-columns: 88px 86px minmax(0,1fr); cursor: default; }
     .alert-row:hover { background: var(--secondary-background-color); }
     .alert-time {
-        font-family: 'Inter',monospace; color: var(--text-color);
+        font-variant-numeric: tabular-nums; color: var(--text-color);
         opacity: 0.55; font-size: 0.73rem; font-weight: 500;
     }
-    .alert-truck  { font-family:'Inter',monospace; font-weight:700; color:var(--text-color); }
-    .alert-savings { text-align:right; font-family:'Inter',monospace; color:var(--p-ok); font-weight:700; }
+    .alert-truck  { font-variant-numeric: tabular-nums; font-weight:700; color:var(--text-color); }
+    .alert-savings { text-align:right; font-variant-numeric: tabular-nums; color:var(--p-ok); font-weight:700; }
     .alert-savings.dash { color: var(--text-color); opacity: 0.3; font-weight: 400; }
     .alert-meta   { font-size:0.7rem; color:var(--text-color); opacity:0.45; margin-top:0.1rem; }
     .alert-reco   { font-size:0.73rem; color:var(--text-color); opacity:0.7; margin-top:0.15rem; }
@@ -303,10 +314,10 @@ st.markdown("""
         font-size: 0.73rem; font-weight: 700; letter-spacing: 0.06em;
         text-decoration: none !important; transition: all 0.15s ease;
     }
-    .filter-link:hover { border-color: var(--p-accent); }
+    .filter-link:hover { border-color: var(--p-brand); }
     .filter-link.active {
-        background: var(--p-accent); border-color: var(--p-accent);
-        color: #FFF; box-shadow: 0 3px 10px var(--p-glow);
+        background: var(--p-brand); border-color: var(--p-brand);
+        color: #FFF;
     }
     .filter-link,.filter-link:visited,.filter-link:hover,.filter-link:active {
         text-decoration: none !important;
@@ -314,32 +325,29 @@ st.markdown("""
 
     /* ── Section-Titel ── */
     .section-title {
-        font-size: 1rem; font-weight: 700; margin: 1rem 0 0.4rem 0;
+        font-size: 1.1rem; font-weight: 700; margin: 1rem 0 0.4rem 0;
         color: var(--text-color); letter-spacing: -0.01em;
         font-family: 'Plus Jakarta Sans',sans-serif;
         display: flex; align-items: center; gap: 0.6rem;
     }
     .section-icon { font-size: 1.2rem; }
     .section-sub {
-        font-size: 0.72rem; color: var(--text-color); opacity: 0.5;
-        margin-bottom: 0.6rem; font-family: 'Inter',monospace;
+        font-size: 0.72rem; color: var(--text-color); opacity: 0.55;
+        margin-bottom: 0.6rem; font-family: 'Inter',sans-serif;
         letter-spacing: 0.04em; text-transform: uppercase;
     }
 
     /* ── Empfehlungs-Banner ── */
     .reco-banner {
-        background: color-mix(in srgb, #FF3D4C 7%, var(--background-color));
-        border-left: 5px solid var(--p-accent);
+        background: color-mix(in srgb, #E5484D 7%, var(--background-color));
         padding: 0.9rem 1rem; border-radius: 6px; margin-bottom: 1rem;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        box-shadow: var(--p-shadow);
     }
     .reco-banner.warning {
-        background: color-mix(in srgb, #FFA500 7%, var(--background-color));
-        border-left-color: var(--p-warn);
+        background: color-mix(in srgb, #F59E0B 7%, var(--background-color));
     }
     .reco-banner.ok {
-        background: color-mix(in srgb, #32C759 7%, var(--background-color));
-        border-left-color: var(--p-ok);
+        background: color-mix(in srgb, #10B981 7%, var(--background-color));
     }
     .reco-title {
         font-weight: 700; font-size: 0.9rem; margin-bottom: 0.2rem;
@@ -347,23 +355,25 @@ st.markdown("""
         display: flex; align-items: center; gap: 0.4rem;
     }
     .reco-text { font-size: 0.8rem; color: var(--text-color); opacity: 0.75; line-height: 1.4; }
-    .reco-rul {
-        float: right; font-family: 'Inter',monospace;
-        font-size: 0.8rem; font-weight: 600; color: var(--text-color);
-        background: rgba(120,120,140,0.1);
-        padding: 0.2rem 0.5rem; border-radius: 3px;
-        border: 1px solid var(--p-border);
-    }
+
+    /* ── Tabellen-Container: ein HTML-Block für Header + Zeilen.
+       Bewusst rahmenlos – nur die Trennlinien zwischen den Zeilen. ── */
+    .table-card { margin-bottom: 0.6rem; }
+    .table-card .row-link:last-child .truck-table-row,
+    .table-card .row-link:last-child .alert-row,
+    .table-card .row-link:last-child .plan-row,
+    .table-card > .alert-row:last-child { border-bottom: none; }
 
     /* ── Flotten-Tabelle ── */
     .truck-table-header {
         display: grid;
         grid-template-columns: 28px minmax(70px,0.8fr) minmax(110px,1.2fr) minmax(85px,0.9fr) minmax(75px,0.8fr) minmax(100px,1fr) 86px;
-        gap: 0.7rem; padding: 0.5rem 0.8rem;
-        background: linear-gradient(90deg, #1A1A1A 0%, #2A2A2A 100%);
-        color: #FFF; font-size: 0.68rem; text-transform: uppercase;
+        gap: 0.7rem; padding: 0.55rem 0.8rem;
+        background: transparent;
+        color: var(--text-color); opacity: 0.65;
+        font-size: 0.68rem; text-transform: uppercase;
         letter-spacing: 0.08em; font-family: 'Plus Jakarta Sans','Inter',sans-serif;
-        border-radius: 4px 4px 0 0; font-weight: 700;
+        border-bottom: 2px solid var(--p-border); font-weight: 700;
     }
     .truck-table-row {
         display: grid;
@@ -372,27 +382,24 @@ st.markdown("""
         border-bottom: 1px solid var(--p-border);
         background: var(--background-color);
         font-size: 0.85rem; align-items: center;
-        transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+        transition: background 0.15s ease;
         cursor: pointer; color: var(--text-color);
     }
     .truck-icon { font-size: 1.1rem; text-align: center; }
     .truck-table-row:hover {
         background: var(--secondary-background-color);
-        transform: translateX(2px);
     }
     .truck-table-row.critical {
-        background: color-mix(in srgb, #FF3D4C 10%, var(--background-color));
-        box-shadow: inset 4px 0 0 var(--p-accent), 0 2px 8px rgba(255, 61, 76, 0.2);
+        background: color-mix(in srgb, #E5484D 9%, var(--background-color));
     }
     .truck-table-row.warning {
-        background: color-mix(in srgb, #FFA500 8%, var(--background-color));
-        box-shadow: inset 4px 0 0 var(--p-warn), 0 2px 6px rgba(255, 165, 0, 0.15);
+        background: color-mix(in srgb, #F59E0B 8%, var(--background-color));
     }
     .row-link,.row-link *,.row-link:visited,.row-link:hover,.row-link:active {
         color: inherit !important; text-decoration: none !important;
     }
     .row-link { display: block; }
-    .truck-id { font-family:'Inter',monospace; font-weight:700; color:var(--text-color); }
+    .truck-id { font-variant-numeric: tabular-nums; font-weight:700; color:var(--text-color); }
 
     /* ── Dark-Mode: stärkere Rahmen & Schatten ──────────────────── */
     [data-theme="dark"] {
@@ -400,11 +407,11 @@ st.markdown("""
         --p-shadow:  0 2px 8px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.07);
         --p-shadow-hover: 0 6px 18px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.12);
     }
-    [data-theme="dark"] .kpi-card.critical { background: color-mix(in srgb, #FF3D4C 10%, var(--background-color)); }
-    [data-theme="dark"] .kpi-card.warning  { background: color-mix(in srgb, #FFA500 10%, var(--background-color)); }
-    [data-theme="dark"] .kpi-card.ok       { background: color-mix(in srgb, #32C759 10%, var(--background-color)); }
-    [data-theme="dark"] .truck-table-row.critical { background: color-mix(in srgb, #FF3D4C  8%, var(--background-color)); }
-    [data-theme="dark"] .truck-table-row.warning  { background: color-mix(in srgb, #FFA500  8%, var(--background-color)); }
+    [data-theme="dark"] .kpi-card.critical { background: color-mix(in srgb, #E5484D 10%, var(--background-color)); }
+    [data-theme="dark"] .kpi-card.warning  { background: color-mix(in srgb, #F59E0B 10%, var(--background-color)); }
+    [data-theme="dark"] .kpi-card.ok       { background: color-mix(in srgb, #10B981 10%, var(--background-color)); }
+    [data-theme="dark"] .truck-table-row.critical { background: color-mix(in srgb, #E5484D  8%, var(--background-color)); }
+    [data-theme="dark"] .truck-table-row.warning  { background: color-mix(in srgb, #F59E0B  8%, var(--background-color)); }
     [data-theme="dark"] .sensor-bar-bg { background: rgba(255,255,255,0.1); }
     [data-theme="dark"] .filter-link   { background: rgba(255,255,255,0.07); }
     [data-theme="dark"] .nav-button.inactive { background: rgba(255,255,255,0.07); }
@@ -433,7 +440,7 @@ st.markdown("""
         font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.1rem; font-weight: 700;
         letter-spacing: 0.18em; color: var(--text-color); margin-bottom: 0.25rem;
     }
-    .role-screen-brand-accent { color: var(--p-accent); }
+    .role-screen-brand-accent { color: var(--p-brand); }
     .role-screen-tagline {
         font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase;
         color: var(--text-color); opacity: 0.35; margin-bottom: 2.6rem;
@@ -452,26 +459,20 @@ st.markdown("""
         display: block; color: inherit; position: relative; overflow: hidden;
         text-align: left; box-shadow: var(--p-shadow);
     }
-    .role-card::before {
-        content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px;
-        background: linear-gradient(90deg, var(--p-accent), #FF7A85);
-        opacity: 0; transition: opacity 0.18s ease;
-    }
-    .role-card:hover::before { opacity: 1; }
-    .role-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,0.12); border-color: rgba(255,61,76,0.25); }
+    .role-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,0.12); border-color: rgba(37,99,235,0.3); }
     .role-card,.role-card *,.role-card:visited,.role-card:hover,.role-card:active { text-decoration: none !important; color: inherit; }
     .role-card-head { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 1.15rem; }
     .role-card-avatar {
         width: 46px; height: 46px; border-radius: 50%; flex: none;
         display: flex; align-items: center; justify-content: center;
-        background: linear-gradient(135deg, var(--p-accent), #FF7A85);
+        background: linear-gradient(135deg, var(--p-brand), #60A5FA);
         color: #FFF; font-weight: 800; font-size: 0.95rem;
         font-family: 'Plus Jakarta Sans', sans-serif;
-        box-shadow: 0 4px 12px var(--p-glow);
+        box-shadow: 0 4px 12px rgba(37,99,235,0.25);
     }
     .role-card-type {
         font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.6rem; font-weight: 700;
-        letter-spacing: 0.18em; text-transform: uppercase; color: var(--p-accent); margin-bottom: 0.15rem;
+        letter-spacing: 0.18em; text-transform: uppercase; color: var(--p-brand); margin-bottom: 0.15rem;
     }
     .role-card-name {
         font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.15rem; font-weight: 700;
@@ -486,13 +487,13 @@ st.markdown("""
     .role-card-cta {
         display: inline-flex; align-items: center; gap: 0.35rem;
         font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.74rem; font-weight: 700;
-        color: var(--p-accent); letter-spacing: 0.05em;
-        border: 1px solid var(--p-accent); border-radius: 6px;
+        color: var(--p-brand); letter-spacing: 0.05em;
+        border: 1px solid var(--p-brand); border-radius: 6px;
         padding: 0.45rem 0.95rem; transition: all 0.15s ease;
     }
+    .role-card-cta svg { width: 12px; height: 12px; flex: none; }
     .role-card:hover .role-card-cta {
-        background: var(--p-accent); color: #FFF !important;
-        box-shadow: 0 4px 14px var(--p-glow);
+        background: var(--p-brand); color: #FFF !important;
     }
     .role-screen-note {
         display: flex; align-items: center; justify-content: center; gap: 0.4rem;
@@ -505,7 +506,6 @@ st.markdown("""
     [data-testid="stForm"] {
         background: var(--background-color);
         border: 1px solid var(--p-border);
-        border-top: 3px solid var(--p-accent);
         border-radius: 12px;
         padding: 2rem 1.8rem 1.3rem;
         box-shadow: var(--p-shadow-hover);
@@ -515,10 +515,10 @@ st.markdown("""
         width: 60px; height: 60px; border-radius: 50%;
         margin: 0 auto 0.85rem;
         display: flex; align-items: center; justify-content: center;
-        background: linear-gradient(135deg, var(--p-accent), #FF7A85);
+        background: linear-gradient(135deg, var(--p-brand), #60A5FA);
         color: #FFF; font-weight: 800; font-size: 1.25rem;
         font-family: 'Plus Jakarta Sans', sans-serif; letter-spacing: 0.02em;
-        box-shadow: 0 6px 16px var(--p-glow);
+        box-shadow: 0 6px 16px rgba(37,99,235,0.25);
     }
     .login-name {
         font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.25rem;
@@ -543,13 +543,19 @@ st.markdown("""
         from { opacity: 0; transform: translateY(4px); }
         to   { opacity: 1; transform: none; }
     }
-    .kpi-card, .reco-banner, .role-card { animation: fadeUp 0.3s ease both; }
-    .truck-table-row, .alert-row { animation: fadeUp 0.25s ease both; }
+    .kpi-card, .reco-banner, .role-card, .table-card { animation: fadeUp 0.3s ease both; }
+    @media (prefers-reduced-motion: reduce) {
+        * { animation: none !important; transition: none !important; }
+    }
+    a:focus-visible, button:focus-visible {
+        outline: 2px solid var(--p-brand); outline-offset: 2px;
+    }
 
     .feed-day {
         font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em;
-        text-transform: uppercase; color: var(--text-color); opacity: 0.45;
-        margin: 0.9rem 0 0.35rem 0.2rem;
+        text-transform: uppercase; color: var(--text-color); opacity: 0.6;
+        padding: 0.55rem 0.8rem 0.4rem; margin: 0;
+        background: var(--secondary-background-color);
         font-family: 'Plus Jakarta Sans','Inter',sans-serif;
     }
 
@@ -557,43 +563,28 @@ st.markdown("""
     .replay-bar {
         display: flex; align-items: center; gap: 0.7rem;
         padding: 0.7rem 1.1rem; margin-bottom: 0.9rem;
-        border: 2px solid var(--p-accent); border-radius: 8px;
-        background: linear-gradient(135deg,
-                      color-mix(in srgb, #FF3D4C 12%, var(--background-color)),
-                      color-mix(in srgb, #FF3D4C 4%, var(--background-color)));
-        font-family: 'Inter',monospace; font-size: 0.8rem;
+        border: 1px solid var(--p-brand); border-radius: 8px;
+        background: color-mix(in srgb, #2563EB 7%, var(--background-color));
+        font-size: 0.8rem; font-variant-numeric: tabular-nums;
         color: var(--text-color); font-weight: 600; letter-spacing: 0.05em;
-        box-shadow: 0 0 20px rgba(255, 61, 76, 0.25), inset 0 1px 0 rgba(255,255,255,0.1);
-        animation: replayGlow 2s ease-in-out infinite;
-    }
-    @keyframes replayGlow {
-        0%, 100% { box-shadow: 0 0 20px rgba(255, 61, 76, 0.25), inset 0 1px 0 rgba(255,255,255,0.1); }
-        50%      { box-shadow: 0 0 35px rgba(255, 61, 76, 0.4), inset 0 1px 0 rgba(255,255,255,0.15); }
     }
     .replay-dot {
         width: 10px; height: 10px; border-radius: 50%; flex: none;
-        background: var(--p-accent); animation: replayPulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        box-shadow: 0 0 12px var(--p-accent);
+        background: var(--p-brand); animation: replayPulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
     @keyframes replayPulse {
         0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.3; transform: scale(0.8); }
+        50% { opacity: 0.35; transform: scale(0.85); }
     }
-    .replay-time { font-weight: 700; color: var(--p-accent); }
+    .replay-time { font-weight: 700; color: var(--p-brand); }
     .replay-progress {
         flex: 1; height: 6px; border-radius: 3px;
         background: rgba(120, 120, 140, 0.2); overflow: hidden;
-        border: 1px solid rgba(255, 61, 76, 0.3);
     }
     .replay-progress-fill {
-        height: 100%; background: linear-gradient(90deg, var(--p-accent), #FFB74D);
-        animation: progressShine 2s ease-in-out infinite;
-        box-shadow: 0 0 10px rgba(255, 61, 76, 0.6);
-    }
-    @keyframes progressShine {
-        0%   { box-shadow: 0 0 10px rgba(255, 61, 76, 0.6); }
-        50%  { box-shadow: 0 0 20px rgba(255, 157, 77, 0.8); }
-        100% { box-shadow: 0 0 10px rgba(255, 61, 76, 0.6); }
+        height: 100%; border-radius: 3px;
+        background: var(--p-brand);
+        transition: width 0.4s ease;
     }
 
     /* ── Wartungsplaner ── */
@@ -601,20 +592,19 @@ st.markdown("""
         display: grid;
         grid-template-columns: 26px 86px 86px minmax(110px,0.8fr) minmax(160px,1.6fr) 96px;
         gap: 0.65rem; align-items: center; padding: 0.55rem 0.8rem;
-        border-bottom: 1px solid var(--p-border); border-radius: 4px;
-        margin-bottom: 0.3rem; font-size: 0.82rem; color: var(--text-color);
+        border-bottom: 1px solid var(--p-border);
+        font-size: 0.82rem; color: var(--text-color);
         transition: background 0.15s; cursor: pointer;
-        animation: fadeUp 0.25s ease both;
     }
     .plan-row:hover { background: var(--secondary-background-color); }
     .plan-pos {
-        font-family: 'Inter',monospace; font-weight: 700;
+        font-variant-numeric: tabular-nums; font-weight: 700;
         color: var(--text-color); opacity: 0.45;
     }
-    .plan-deadline { font-weight: 700; font-family: 'Inter',monospace; }
-    .plan-deadline.now { color: var(--p-accent); }
+    .plan-deadline { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .plan-deadline.now { color: var(--p-crit); }
     .plan-reco { font-size: 0.74rem; opacity: 0.7; min-width: 0; overflow-wrap: anywhere; }
-    .plan-rul { text-align: right; font-family: 'Inter',monospace; opacity: 0.7; }
+    .plan-rul { text-align: right; font-variant-numeric: tabular-nums; opacity: 0.7; }
 
     /* ── Responsive: schmale Viewports ── */
     @media (max-width: 760px) {
@@ -657,6 +647,16 @@ _ICON_PATHS = {
     "lock": '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>'
             '<path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
     "check": '<polyline points="20 6 9 17 4 12"/>',
+    "play": '<polygon points="6 4 20 12 6 20 6 4"/>',
+    "activity": '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+    "calendar": '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>'
+                '<line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>'
+                '<line x1="3" y1="10" x2="21" y2="10"/>',
+    "package": '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/>'
+               '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 '
+               '1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>'
+               '<polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+    "arrow-right": '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
 }
 
 
@@ -675,6 +675,37 @@ def status_badge(status):
 def severity_color(severity):
     return {"KRITISCH": COLOR_CRIT, "WARNUNG": COLOR_WARN,
             "INFO": COLOR_INFO, "OK": COLOR_OK}.get(severity, "#8A8A8F")
+
+
+def styled_chart(chart):
+    """Einheitliches Altair-Theme: Inter, dezente Gridlines, keine Achsenlinien."""
+    return chart.configure_view(strokeWidth=0).configure_axis(
+        labelFont="Inter", titleFont="Inter",
+        labelColor="#8A8A93", titleColor="#8A8A93",
+        gridColor="rgba(120,120,140,0.15)",
+        domainOpacity=0, tickOpacity=0,
+    )
+
+
+def gradient_area(df, x_enc, y_enc, color, baseline=None):
+    """Verlaufsfläche unter einer Linie – gemeinsames Stilmittel aller Zeitreihen.
+
+    baseline: unterer Rand der Fläche. Nötig, wenn die Y-Achse nicht bei 0
+    beginnt – ohne y2 füllt Vega-Lite bis zur Null-Basislinie und die Fläche
+    läuft unter den Diagrammbereich hinaus.
+    """
+    encodings = {"x": x_enc, "y": y_enc}
+    if baseline is not None:
+        encodings["y2"] = alt.datum(baseline)
+    return alt.Chart(df).mark_area(
+        color=alt.Gradient(
+            gradient="linear",
+            stops=[alt.GradientStop(color="transparent", offset=0),
+                   alt.GradientStop(color=color, offset=1)],
+            x1=1, x2=1, y1=1, y2=0,
+        ),
+        opacity=0.16,
+    ).encode(**encodings)
 
 
 def _role_param():
@@ -745,7 +776,7 @@ def load_data():
     required = ["fleet.csv", "timeseries.csv", "alerts.csv", "truck_alerts.csv"]
     missing = [f for f in required if not (base / f).exists()]
     if missing:
-        return None, None, None, None, None, None, None, sync_error, missing
+        return None, None, None, None, None, None, None, None, sync_error, missing
 
     fleet = pd.read_csv(base / "fleet.csv")
     timeseries = pd.read_csv(base / "timeseries.csv", parse_dates=["timestamp"])
@@ -764,6 +795,14 @@ def load_data():
     except (ValueError, OSError):
         replay, replay_alerts = pd.DataFrame(), pd.DataFrame()
 
+    # RUL-Prognose-Verlauf (optional, vom Adapter erzeugt)
+    rul_history = pd.DataFrame()
+    try:
+        if (base / "rul_history.csv").exists():
+            rul_history = pd.read_csv(base / "rul_history.csv", parse_dates=["timestamp"])
+    except (ValueError, OSError):
+        rul_history = pd.DataFrame()
+
     metrics = {}
     metrics_path = base / "metrics.json"
     if metrics_path.exists():
@@ -772,11 +811,12 @@ def load_data():
         except (json.JSONDecodeError, OSError):
             metrics = {}
 
-    return fleet, timeseries, alerts, truck_alerts, replay, replay_alerts, metrics, sync_error, []
+    return (fleet, timeseries, alerts, truck_alerts, replay, replay_alerts,
+            rul_history, metrics, sync_error, [])
 
 
 (fleet, timeseries, alerts, truck_alerts, replay, replay_alerts,
- ml_metrics, _sync_error, _missing) = load_data()
+ rul_history, ml_metrics, _sync_error, _missing) = load_data()
 
 if _missing:
     st.error(
@@ -882,7 +922,8 @@ if st.session_state.role:
     )
     st.markdown(
         '<div class="header-bar">'
-        '<div class="header-brand"><span>PRE<span class="header-brand-accent">MA</span></span>'
+        f'<div class="header-brand"><span class="header-logo">{icon("truck")}</span>'
+        '<span>PRE<span class="header-brand-accent">MA</span></span>'
         '<span class="header-tagline">Predictive Maintenance</span></div>'
         f'<div class="header-user">{_h_user}{_switch_link}</div>'
         '</div>',
@@ -915,7 +956,7 @@ if st.session_state.role:
                           f'<span class="replay-dot"></span>DEMO BEENDEN</a>')
         else:
             _nav_html += (f'<a class="nav-button demo" href="{demo_href()}" target="_self">'
-                          f'<span class="demo-glyph">▶</span>LIVE-DEMO</a>')
+                          f'{icon("play")}LIVE-DEMO</a>')
     _nav_html += '</div>'
     st.markdown(_nav_html, unsafe_allow_html=True)
 
@@ -937,6 +978,24 @@ def save_feedback(truck_id: str, verdict: str, status: str) -> None:
     else:
         combined = new_row
     combined.to_csv(feedback_path, index=False)
+
+
+def last_feedback(truck_id: str):
+    """Letzter Feedback-Eintrag für ein Fahrzeug (oder None)."""
+    feedback_path = Path(__file__).parent / "data" / "feedback.csv"
+    if not feedback_path.exists():
+        return None
+    try:
+        df = pd.read_csv(feedback_path)
+        # Timestamps stammen aus isoformat(); to_datetime mit coerce ist
+        # robust gegen alte/abweichende Einträge (parse_dates wäre es nicht).
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    except (ValueError, OSError, KeyError):
+        return None
+    rows = df[df["lkw_id"] == truck_id]
+    if rows.empty:
+        return None
+    return rows.sort_values("timestamp").iloc[-1]
 
 
 # ============================================================================
@@ -1019,18 +1078,12 @@ def _overview_table(fdf):
     fleet_sorted["sort_key"] = fleet_sorted["status"].map(status_order)
     fleet_sorted = fleet_sorted.sort_values(["sort_key", "rul_hours"]).drop(columns=["sort_key"])
 
-    st.markdown("""
-    <div class="truck-table-header">
-        <div></div>
-        <div>LKW-ID</div>
-        <div>Fahrer</div>
-        <div>Motortemp.</div>
-        <div>Bremse %</div>
-        <div>RUL (Stunden)</div>
-        <div>Status</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+    # Header + Zeilen als ein HTML-Block, damit der Card-Container
+    # (.table-card) alles umschließen kann.
+    parts = ['<div class="table-card">'
+             '<div class="truck-table-header">'
+             '<div></div><div>LKW-ID</div><div>Fahrer</div><div>Motortemp.</div>'
+             '<div>Bremse %</div><div>RUL (Stunden)</div><div>Status</div></div>']
     for _, truck in fleet_sorted.iterrows():
         row_class = "truck-table-row"
         if truck["status"] == "KRITISCH":
@@ -1038,19 +1091,20 @@ def _overview_table(fdf):
         elif truck["status"] == "WARNUNG":
             row_class += " warning"
         dot_cls = str(truck["status"]).lower()
-        st.markdown(f"""
-        <a class="row-link" href="{detail_href(truck['lkw_id'])}" target="_self">
-            <div class="{row_class}">
-                <div class="truck-icon"><span class="status-dot status-dot-{dot_cls}"></span></div>
-                <div class="truck-id">{truck['lkw_id']}</div>
-                <div>{truck['driver']}</div>
-                <div>{truck['motor_temp_c']:.0f} °C</div>
-                <div>{truck['brake_fluid_pct']:.0f} %</div>
-                <div>{fmt_de(truck['rul_hours'])} h</div>
-                <div>{status_badge(truck['status'])}</div>
-            </div>
-        </a>
-        """, unsafe_allow_html=True)
+        parts.append(
+            f'<a class="row-link" href="{detail_href(truck["lkw_id"])}" target="_self">'
+            f'<div class="{row_class}">'
+            f'<div class="truck-icon"><span class="status-dot status-dot-{dot_cls}"></span></div>'
+            f'<div class="truck-id">{truck["lkw_id"]}</div>'
+            f'<div>{truck["driver"]}</div>'
+            f'<div>{truck["motor_temp_c"]:.0f} °C</div>'
+            f'<div>{truck["brake_fluid_pct"]:.0f} %</div>'
+            f'<div>{fmt_de(truck["rul_hours"])} h</div>'
+            f'<div>{status_badge(truck["status"])}</div>'
+            f'</div></a>'
+        )
+    parts.append('</div>')
+    st.markdown("".join(parts), unsafe_allow_html=True)
     return fleet_sorted
 
 
@@ -1108,31 +1162,34 @@ def render_maintenance_plan():
     with head_r:
         export = pd.DataFrame(entries).drop(columns=["_deadline", "_sofort"])
         st.download_button(
-            "⬇ CSV-Export",
+            "CSV-Export",
+            icon=":material/download:",
             data=export.to_csv(index=False).encode("utf-8-sig"),
             file_name=f"prema_wartungsplan_{now:%Y%m%d_%H%M}.csv",
             mime="text/csv",
             width="stretch",
         )
 
+    rows = []
     for e in entries:
         if e["_sofort"]:
             deadline_html = '<div class="plan-deadline now">SOFORT</div>'
         else:
             deadline_html = (f'<div class="plan-deadline">bis '
                              f'{WEEKDAYS_DE[e["_deadline"].weekday()][:2]} {e["_deadline"]:%d.%m.}</div>')
-        st.markdown(f"""
-        <a class="row-link" href="{detail_href(e['LKW-ID'])}" target="_self">
-            <div class="plan-row">
-                <div class="plan-pos">{e['Priorität']}</div>
-                <div class="truck-id">{e['LKW-ID']}</div>
-                <div>{status_badge(e['Status'])}</div>
-                {deadline_html}
-                <div class="plan-reco">{e['Maßnahme']}</div>
-                <div class="plan-rul">RUL {fmt_de(e['RUL (Stunden)'])} h</div>
-            </div>
-        </a>
-        """, unsafe_allow_html=True)
+        rows.append(
+            f'<a class="row-link" href="{detail_href(e["LKW-ID"])}" target="_self">'
+            f'<div class="plan-row">'
+            f'<div class="plan-pos">{e["Priorität"]}</div>'
+            f'<div class="truck-id">{e["LKW-ID"]}</div>'
+            f'<div>{status_badge(e["Status"])}</div>'
+            f'{deadline_html}'
+            f'<div class="plan-reco">{e["Maßnahme"]}</div>'
+            f'<div class="plan-rul">RUL {fmt_de(e["RUL (Stunden)"])} h</div>'
+            f'</div></a>'
+        )
+    st.markdown('<div class="table-card">' + "".join(rows) + '</div>',
+                unsafe_allow_html=True)
 
 
 def _render_replay():
@@ -1170,7 +1227,9 @@ def _render_replay():
             fresh = replay_alerts[(replay_alerts["timestamp"] > prev_ts)
                                   & (replay_alerts["timestamp"] <= ts)]
             for ev in fresh.itertuples():
-                sev_icon = {"KRITISCH": "🚨", "WARNUNG": "⚠️", "INFO": "ℹ️"}.get(ev.severity, "ℹ️")
+                sev_icon = {"KRITISCH": ":material/error:",
+                            "WARNUNG": ":material/warning:",
+                            "INFO": ":material/info:"}.get(ev.severity, ":material/info:")
                 st.toast(f"{ev.lkw_id}: {ev.message}", icon=sev_icon)
 
         cur = (replay[replay["timestamp"] <= ts]
@@ -1220,7 +1279,8 @@ def render_fleet_overview():
 
     with head_r:
         st.download_button(
-            "⬇ CSV-Export",
+            "CSV-Export",
+            icon=":material/download:",
             data=fleet_sorted.to_csv(index=False).encode("utf-8-sig"),
             file_name=f"prema_flotte_{datetime.now():%Y%m%d_%H%M}.csv",
             mime="text/csv",
@@ -1273,51 +1333,126 @@ def render_truck_detail():
         text = f"Alle Sensorwerte im erwarteten Bereich. Nächste turnusgemäße Wartung in {fmt_de(truck['rul_hours'])} h."
 
     st.markdown(f"""<div class="reco-banner {banner_cls}">
-        <div class="reco-rul">RUL: {fmt_de(truck['rul_hours'])} h</div>
         <div class="reco-title">{status_badge(truck["status"])} &nbsp; {title}</div>
         <div class="reco-text">{text}</div>
     </div>
     """, unsafe_allow_html=True)
 
+    # KPI-Strip: Fahrzeugdaten im selben Kartenstil wie die Flottenübersicht.
+    # Die RUL-Karte übernimmt die Statusfärbung des Fahrzeugs.
+    status_cls = {"KRITISCH": "critical", "WARNUNG": "warning", "OK": "ok"}.get(truck["status"], "")
+
+    # Wartungstermin: gleiche Logik wie der Wartungsplan (PLANNER_SAFETY * RUL)
+    slack_h = float(truck["rul_hours"]) * PLANNER_SAFETY
+    deadline = datetime.now() + timedelta(hours=slack_h)
+    if slack_h <= 24:
+        termin_cls, termin_val = "critical", "SOFORT"
+        termin_sub = "Fahrzeug aus dem Verkehr ziehen"
+    else:
+        termin_cls = ""
+        termin_val = f"{WEEKDAYS_DE[deadline.weekday()][:2]} {deadline:%d.%m.}"
+        termin_sub = f"bei {PLANNER_SAFETY * 100:.0f} % der Restlaufzeit"
+
+    st.markdown(
+        f'<div class="kpi-grid">'
+        f'<div class="kpi-card {status_cls}">'
+        f'<div class="kpi-card-header"><span class="kpi-card-icon">{icon("wrench")}</span>'
+        f'<div class="kpi-label">RUL-Prognose</div></div>'
+        f'<div class="kpi-value">{fmt_de(truck["rul_hours"])} h</div>'
+        f'<div class="kpi-sub">Restlaufzeit · Random Forest</div></div>'
+        f'<div class="kpi-card">'
+        f'<div class="kpi-card-header"><span class="kpi-card-icon">{icon("activity")}</span>'
+        f'<div class="kpi-label">Kilometerstand</div></div>'
+        f'<div class="kpi-value">{fmt_de(truck["km_total"])} km</div>'
+        f'<div class="kpi-sub">Gesamtlaufleistung</div></div>'
+        f'<div class="kpi-card">'
+        f'<div class="kpi-card-header"><span class="kpi-card-icon">{icon("package")}</span>'
+        f'<div class="kpi-label">Beladung</div></div>'
+        f'<div class="kpi-value">{truck["load_pct"]:.0f} %</div>'
+        f'<div class="kpi-sub">aktuelle Auslastung</div></div>'
+        f'<div class="kpi-card {termin_cls}">'
+        f'<div class="kpi-card-header"><span class="kpi-card-icon">{icon("calendar")}</span>'
+        f'<div class="kpi-label">Wartung bis</div></div>'
+        f'<div class="kpi-value">{termin_val}</div>'
+        f'<div class="kpi-sub">{termin_sub}</div></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     # Two columns: sensors left, chart right
-    left, right = st.columns([1, 1.3])
+    line_color = severity_color(truck["status"])
+    left, right = st.columns([1, 1.3], gap="large")
 
     with left:
         st.markdown('<div class="section-title">Sensordaten</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-sub">LIVE-WERTE AUS LETZTER BATCH-INFERENZ</div>', unsafe_allow_html=True)
 
+        # Je Sensor: Schwellenmarker (Position in %, Stufe) für die Warn-/
+        # Kritisch-Grenze auf dem Balken sowie das Zahlenformat des Werts.
         sensors = [
             ("Motortemperatur", truck["motor_temp_c"], 110, "°C",
-                COLOR_CRIT if truck["motor_temp_c"] > MOTOR_TEMP_CRIT_C else COLOR_OK),
+                COLOR_CRIT if truck["motor_temp_c"] > MOTOR_TEMP_CRIT_C else COLOR_OK,
+                [(MOTOR_TEMP_CRIT_C / 110 * 100, "crit")], ".1f"),
             ("Öldruck", truck["oil_pressure_bar"], 5.0, "bar",
-                COLOR_WARN if truck["oil_pressure_bar"] < OIL_PRESSURE_WARN_BAR else COLOR_OK),
+                COLOR_WARN if truck["oil_pressure_bar"] < OIL_PRESSURE_WARN_BAR else COLOR_OK,
+                [(OIL_PRESSURE_WARN_BAR / 5.0 * 100, "warn")], ".1f"),
             ("Bremsflüssigkeit", truck["brake_fluid_pct"], 100, "%",
                 COLOR_CRIT if truck["brake_fluid_pct"] < BRAKE_CRIT_PCT
-                else (COLOR_WARN if truck["brake_fluid_pct"] < BRAKE_WARN_PCT else COLOR_OK)),
-            ("Reifendruck VL", truck["tire_fl_bar"], 10, "bar", COLOR_OK),
-            ("Reifendruck VR", truck["tire_fr_bar"], 10, "bar", COLOR_OK),
+                else (COLOR_WARN if truck["brake_fluid_pct"] < BRAKE_WARN_PCT else COLOR_OK),
+                [(BRAKE_WARN_PCT, "warn"), (BRAKE_CRIT_PCT, "crit")], ".1f"),
         ]
-        for label, val, max_val, unit, color in sensors:
+        # Weitere Pipeline-Sensoren (ohne definierte Schwellwerte). Guards,
+        # falls eine ältere fleet.csv die Spalten noch nicht enthält.
+        if "engine_rpm" in truck.index and pd.notna(truck["engine_rpm"]):
+            sensors.append(("Motordrehzahl", truck["engine_rpm"], 2000, "U/min", COLOR_OK, [], ".0f"))
+        if "fuel_pressure_bar" in truck.index and pd.notna(truck["fuel_pressure_bar"]):
+            sensors.append(("Kraftstoffdruck", truck["fuel_pressure_bar"], 20, "bar", COLOR_OK, [], ".1f"))
+        if "oil_temp_c" in truck.index and pd.notna(truck["oil_temp_c"]):
+            sensors.append(("Öltemperatur", truck["oil_temp_c"], 100, "°C", COLOR_OK, [], ".1f"))
+        sensors += [
+            ("Reifendruck VL", truck["tire_fl_bar"], 10, "bar", COLOR_OK, [], ".1f"),
+            ("Reifendruck VR", truck["tire_fr_bar"], 10, "bar", COLOR_OK, [], ".1f"),
+        ]
+        for label, val, max_val, unit, color, marks, fmt in sensors:
             pct = max(0, min(100, val / max_val * 100))
-            st.markdown(f"""
-            <div class="sensor-row">
-                <div class="sensor-label">{label}</div>
-                <div class="sensor-bar-bg">
-                    <div class="sensor-bar-fill" style="width: {pct}%; background: {color};"></div>
-                </div>
-                <div class="sensor-value">{val:.1f} {unit}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            marks_html = "".join(
+                f'<span class="sensor-mark sensor-mark-{cls}" style="left:{p:.0f}%"></span>'
+                for p, cls in marks
+            )
+            # Eine Zeile ohne Einrückung: Leerzeilen/eingerückte Zeilen würden
+            # den HTML-Block in Markdown beenden (Rest erschiene als Code).
+            st.markdown(
+                f'<div class="sensor-row">'
+                f'<div class="sensor-label">{label}</div>'
+                f'<div class="sensor-bar-bg">'
+                f'<div class="sensor-bar-fill" style="width: {pct}%; background: {color};"></div>'
+                f'{marks_html}</div>'
+                f'<div class="sensor-value">{val:{fmt}} {unit}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-        # Vehicle metadata
-        st.markdown('<div class="section-title">Fahrzeugdaten</div>', unsafe_allow_html=True)
-        meta_col1, meta_col2 = st.columns(2)
-        with meta_col1:
-            st.metric("Kilometerstand", f"{fmt_de(truck['km_total'])} km")
-            st.metric("Fahrer", truck["driver"])
-        with meta_col2:
-            st.metric("Beladung", f"{truck['load_pct']:.0f} %")
-            st.metric("RUL-Prognose", f"{fmt_de(truck['rul_hours'])} h")
+        # RUL-Prognose-Verlauf (30 Tage, Tagesmedian aus rul_history.csv)
+        rul_truck = (rul_history[rul_history["lkw_id"] == truck_id]
+                     if rul_history is not None and not rul_history.empty
+                     else pd.DataFrame())
+        if not rul_truck.empty:
+            st.markdown('<div class="section-title">RUL-Prognose · letzte 30 Tage</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-sub">TAGESMEDIAN DER RESTLAUFZEIT-VORHERSAGE · RANDOM FOREST</div>', unsafe_allow_html=True)
+            x_rul = alt.X("timestamp:T", title=None, axis=alt.Axis(format="%d.%m.", labelFontSize=10))
+            y_rul = alt.Y("rul_hours:Q", title="RUL (Stunden)",
+                          axis=alt.Axis(labelFontSize=10, titleFontSize=11))
+            rul_line = alt.Chart(rul_truck).mark_line(
+                color=line_color, strokeWidth=2
+            ).encode(
+                x=x_rul, y=y_rul,
+                tooltip=[
+                    alt.Tooltip("timestamp:T", title="Tag", format="%d.%m."),
+                    alt.Tooltip("rul_hours:Q", title="RUL (h)", format=".0f"),
+                ]
+            ).properties(height=180)
+            rul_area = gradient_area(rul_truck, x_rul, y_rul, line_color)
+            st.altair_chart(styled_chart(alt.layer(rul_area, rul_line)), width="stretch")
 
         # RUL-Balkendiagramm (FA-6): Flottenvergleich, aktueller LKW markiert
         st.markdown('<div class="section-title">RUL im Flottenvergleich</div>', unsafe_allow_html=True)
@@ -1339,33 +1474,52 @@ def render_truck_detail():
                 alt.Tooltip("status:N", title="Status"),
             ],
         ).properties(height=220)
-        st.altair_chart(rul_chart.configure_view(strokeWidth=0), width="stretch")
+        st.altair_chart(styled_chart(rul_chart), width="stretch")
 
     with right:
-        st.markdown('<div class="section-title">Bremsflüssigkeit · letzte 72 h</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-sub">ZEITREIHEN-DEGRADATION · ISOLATION FOREST + XGBOOST</div>', unsafe_allow_html=True)
-
         ts_truck = timeseries[timeseries["lkw_id"] == truck_id].copy()
 
         if ts_truck.empty:
             st.info("Keine Zeitreihendaten für dieses Fahrzeug vorhanden.")
         else:
-            line_color = severity_color(truck["status"])
+            # Health-Score (FA-6): der ML-Index, auf dem die Statusampel basiert
+            if "health_score" in ts_truck.columns and ts_truck["health_score"].notna().any():
+                st.markdown('<div class="section-title">Health-Score · letzte 72 h</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-sub">ML-GESUNDHEITSINDEX (0–1) · GRUNDLAGE DER STATUSAMPEL</div>', unsafe_allow_html=True)
+                x_hs = alt.X("timestamp:T", title=None, axis=alt.Axis(format="%d.%m %H:%M", labelFontSize=10))
+                y_hs = alt.Y("health_score:Q", title="Health-Score",
+                             scale=alt.Scale(domain=[0, 1]),
+                             axis=alt.Axis(labelFontSize=10, titleFontSize=11))
+                hs_line = alt.Chart(ts_truck).mark_line(
+                    color=line_color, strokeWidth=2.5
+                ).encode(
+                    x=x_hs, y=y_hs,
+                    tooltip=[
+                        alt.Tooltip("timestamp:T", title="Zeit", format="%d.%m %H:%M"),
+                        alt.Tooltip("health_score:Q", title="Health-Score", format=".2f"),
+                    ]
+                ).properties(height=200)
+                hs_warn = alt.Chart(pd.DataFrame({"y": [HEALTH_WARN]})).mark_rule(
+                    color=COLOR_WARN, strokeDash=[4, 4], strokeWidth=1.5
+                ).encode(y="y:Q")
+                hs_crit = alt.Chart(pd.DataFrame({"y": [HEALTH_CRIT]})).mark_rule(
+                    color=COLOR_CRIT, strokeDash=[4, 4], strokeWidth=1.5
+                ).encode(y="y:Q")
+                hs_area = gradient_area(ts_truck, x_hs, y_hs, line_color)
+                st.altair_chart(styled_chart(alt.layer(hs_area, hs_line, hs_warn, hs_crit)),
+                                width="stretch")
+                st.caption(f"⎯⎯ Warnschwelle {str(HEALTH_WARN).replace('.', ',')} · "
+                           f"⎯⎯ Kritische Schwelle {str(HEALTH_CRIT).replace('.', ',')}")
+
+            # Bremsflüssigkeits-Chart: wird hier nur aufgebaut und erst nach
+            # Motortemp/Öldruck gerendert (Chart-Reihenfolge der Spalte).
             x_enc = alt.X("timestamp:T", title=None, axis=alt.Axis(format="%d.%m %H:%M", labelFontSize=10))
             y_enc = alt.Y("brake_fluid_pct:Q", title="Bremsflüssigkeit (%)",
                           scale=alt.Scale(domain=[0, 100]),
                           axis=alt.Axis(labelFontSize=10, titleFontSize=11))
 
             # Sanfte Verlaufsfläche unter der Linie
-            area = alt.Chart(ts_truck).mark_area(
-                color=alt.Gradient(
-                    gradient="linear",
-                    stops=[alt.GradientStop(color="transparent", offset=0),
-                           alt.GradientStop(color=line_color, offset=1)],
-                    x1=1, x2=1, y1=1, y2=0,
-                ),
-                opacity=0.18,
-            ).encode(x=x_enc, y=y_enc)
+            area = gradient_area(ts_truck, x_enc, y_enc, line_color)
 
             chart = alt.Chart(ts_truck).mark_line(
                 color=line_color,
@@ -1442,26 +1596,19 @@ def render_truck_detail():
 
             brake_chart = alt.layer(area, chart, warn_line, crit_line,
                                     *alert_layers, *forecast_layers)
-            st.altair_chart(brake_chart.configure_view(strokeWidth=0), width="stretch")
-
-            cap = f"⎯⎯ Warnschwelle {BRAKE_WARN_PCT} % · ⎯⎯ Kritische Schwelle {BRAKE_CRIT_PCT} %"
-            if not alert_markers.empty:
-                cap += " · ╌╌ Alert-Zeitpunkte"
-            if forecast_note:
-                cap += f" · ┄┄ RUL-Prognose (Random Forest), {forecast_note}"
-            st.caption(cap)
 
             # Motor temperature chart
             st.markdown('<div class="section-title">Motortemperatur · letzte 72 h</div>', unsafe_allow_html=True)
             temp_min = float(min(60, ts_truck["motor_temp_c"].min() - 5))
             temp_max = float(max(110, ts_truck["motor_temp_c"].max() + 5))
+            x_enc2 = alt.X("timestamp:T", title=None, axis=alt.Axis(format="%d.%m %H:%M", labelFontSize=10))
+            y_enc2 = alt.Y("motor_temp_c:Q", title="Motortemp. (°C)",
+                           scale=alt.Scale(domain=[temp_min, temp_max]),
+                           axis=alt.Axis(labelFontSize=10, titleFontSize=11))
             chart2 = alt.Chart(ts_truck).mark_line(
                 color=COLOR_INFO, strokeWidth=2
             ).encode(
-                x=alt.X("timestamp:T", title=None, axis=alt.Axis(format="%d.%m %H:%M", labelFontSize=10)),
-                y=alt.Y("motor_temp_c:Q", title="Motortemp. (°C)",
-                        scale=alt.Scale(domain=[temp_min, temp_max]),
-                        axis=alt.Axis(labelFontSize=10, titleFontSize=11)),
+                x=x_enc2, y=y_enc2,
                 tooltip=[
                     alt.Tooltip("timestamp:T", title="Zeit", format="%d.%m %H:%M"),
                     alt.Tooltip("motor_temp_c:Q", title="Motortemp. °C", format=".1f"),
@@ -1472,19 +1619,22 @@ def render_truck_detail():
                 color=COLOR_CRIT, strokeDash=[4, 4], strokeWidth=1.5
             ).encode(y="y:Q")
 
-            st.altair_chart((chart2 + crit_temp).configure_view(strokeWidth=0), width="stretch")
+            temp_area = gradient_area(ts_truck, x_enc2, y_enc2, COLOR_INFO, baseline=temp_min)
+            st.altair_chart(styled_chart(alt.layer(temp_area, chart2, crit_temp)),
+                            width="stretch")
 
             # Öldruck-Zeitreihe (Spalte erst seit der aktuellen Adapter-Version)
             if "oil_pressure_bar" in ts_truck.columns:
                 st.markdown('<div class="section-title">Öldruck · letzte 72 h</div>', unsafe_allow_html=True)
                 oil_max = float(max(5.5, ts_truck["oil_pressure_bar"].max() + 0.5))
+                x_enc3 = alt.X("timestamp:T", title=None, axis=alt.Axis(format="%d.%m %H:%M", labelFontSize=10))
+                y_enc3 = alt.Y("oil_pressure_bar:Q", title="Öldruck (bar)",
+                               scale=alt.Scale(domain=[0, oil_max]),
+                               axis=alt.Axis(labelFontSize=10, titleFontSize=11))
                 chart3 = alt.Chart(ts_truck).mark_line(
                     color="#8B5CF6", strokeWidth=2
                 ).encode(
-                    x=alt.X("timestamp:T", title=None, axis=alt.Axis(format="%d.%m %H:%M", labelFontSize=10)),
-                    y=alt.Y("oil_pressure_bar:Q", title="Öldruck (bar)",
-                            scale=alt.Scale(domain=[0, oil_max]),
-                            axis=alt.Axis(labelFontSize=10, titleFontSize=11)),
+                    x=x_enc3, y=y_enc3,
                     tooltip=[
                         alt.Tooltip("timestamp:T", title="Zeit", format="%d.%m %H:%M"),
                         alt.Tooltip("oil_pressure_bar:Q", title="Öldruck (bar)", format=".2f"),
@@ -1495,7 +1645,19 @@ def render_truck_detail():
                     color=COLOR_WARN, strokeDash=[4, 4], strokeWidth=1.5
                 ).encode(y="y:Q")
 
-                st.altair_chart((chart3 + warn_oil).configure_view(strokeWidth=0), width="stretch")
+                oil_area = gradient_area(ts_truck, x_enc3, y_enc3, "#8B5CF6")
+                st.altair_chart(styled_chart(alt.layer(oil_area, chart3, warn_oil)),
+                                width="stretch")
+
+            st.markdown('<div class="section-title">Bremsflüssigkeit · letzte 72 h</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-sub">ZEITREIHEN-DEGRADATION · ISOLATION FOREST + XGBOOST</div>', unsafe_allow_html=True)
+            st.altair_chart(styled_chart(brake_chart), width="stretch")
+            cap = f"⎯⎯ Warnschwelle {BRAKE_WARN_PCT} % · ⎯⎯ Kritische Schwelle {BRAKE_CRIT_PCT} %"
+            if not alert_markers.empty:
+                cap += " · ╌╌ Alert-Zeitpunkte"
+            if forecast_note:
+                cap += f" · ┄┄ RUL-Prognose (Random Forest), {forecast_note}"
+            st.caption(cap)
 
     # Alert history for this truck
     st.markdown(f'<div class="section-title">Alert-Verlauf · {truck_id}</div>', unsafe_allow_html=True)
@@ -1504,6 +1666,7 @@ def render_truck_detail():
     if truck_history.empty:
         st.info("Keine Alerts für dieses Fahrzeug in den letzten 30 Tagen.")
     else:
+        rows = []
         for _, alert in truck_history.iterrows():
             dtc = alert.get("dtc_code")
             dtc_str = f" · DTC {dtc}" if isinstance(dtc, str) and dtc.strip() else ""
@@ -1512,20 +1675,25 @@ def render_truck_detail():
                 f'<div class="alert-reco"><b>Empfehlung:</b> {reco}</div>'
                 if isinstance(reco, str) and reco.strip() else ""
             )
-            st.markdown(f"""
-            <div class="alert-row history">
-                <div class="alert-time">{alert['timestamp'].strftime('%d.%m. %H:%M')}</div>
-                <div>{status_badge(alert['severity'])}</div>
-                <div class="alert-message">
-                    {alert['message']}{dtc_str}
-                    {reco_html}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            rows.append(
+                f'<div class="alert-row history">'
+                f'<div class="alert-time">{alert["timestamp"].strftime("%d.%m. %H:%M")}</div>'
+                f'<div>{status_badge(alert["severity"])}</div>'
+                f'<div class="alert-message">{alert["message"]}{dtc_str}{reco_html}</div>'
+                f'</div>'
+            )
+        st.markdown('<div class="table-card">' + "".join(rows) + '</div>',
+                    unsafe_allow_html=True)
 
     if st.session_state.get("role") == "wl":
         st.markdown('<div class="section-title" style="margin-top:1.5rem;">Wartungsfeedback</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-sub">NACH ABSCHLUSS DER WARTUNG BITTE BESTÄTIGEN · FLIESST INS NÄCHTLICHE RETRAINING EIN</div>', unsafe_allow_html=True)
+        fb = last_feedback(truck_id)
+        if fb is not None:
+            verdict_label = ("Wartung bestätigt" if fb["verdict"] == "bestätigt"
+                             else "Als Fehlalarm gemeldet")
+            when = f" am {fb['timestamp']:%d.%m.%Y, %H:%M} Uhr" if pd.notna(fb["timestamp"]) else ""
+            st.caption(f"Zuletzt erfasst: {verdict_label}{when}")
         col_a, col_b, _sp = st.columns([1.4, 1.4, 4])
         with col_a:
             if st.button("Wartung bestätigt", key=f"fb_ok_{truck_id}", type="primary"):
@@ -1603,7 +1771,8 @@ def render_alert_feed():
 
     with feed_r:
         st.download_button(
-            "⬇ CSV-Export",
+            "CSV-Export",
+            icon=":material/download:",
             data=filtered.to_csv(index=False).encode("utf-8-sig"),
             file_name=f"prema_alerts_{datetime.now():%Y%m%d_%H%M}.csv",
             mime="text/csv",
@@ -1619,6 +1788,7 @@ def render_alert_feed():
 
     today = datetime.now().date()
     current_day = None
+    parts = ['<div class="table-card">']
     for _, alert in shown.iterrows():
         # Tages-Trenner: Feed bleibt chronologisch, wird aber gruppiert lesbar
         alert_day = alert["timestamp"].date()
@@ -1628,7 +1798,7 @@ def render_alert_feed():
             day_label = ("Heute" if delta_days == 0 else
                          "Gestern" if delta_days == 1 else
                          f"{WEEKDAYS_DE[alert_day.weekday()]}, {alert['timestamp']:%d.%m.}")
-            st.markdown(f'<div class="feed-day">{day_label}</div>', unsafe_allow_html=True)
+            parts.append(f'<div class="feed-day">{day_label}</div>')
         # Kontext aus Pipeline-Anreicherung (FA-2): DTC, Wetter, Beladung
         meta_parts = [f"Quelle: {alert['source']}"]
         dtc = alert.get("dtc_code")
@@ -1656,21 +1826,19 @@ def render_alert_feed():
         else:
             savings_cls, savings_html = "alert-savings dash", "–"
 
-        st.markdown(f"""
-        <a class="row-link" href="{detail_href(alert['lkw_id'])}" target="_self">
-            <div class="alert-row">
-                <div class="alert-time">{alert['timestamp'].strftime('%d.%m. %H:%M')}</div>
-                <div>{status_badge(alert['severity'])}</div>
-                <div class="alert-truck">{alert['lkw_id']}</div>
-                <div class="alert-message">
-                    {alert['message']}
-                    {reco_html}
-                    <div class="alert-meta">{' · '.join(meta_parts)}</div>
-                </div>
-                <div class="{savings_cls}">{savings_html}</div>
-            </div>
-        </a>
-        """, unsafe_allow_html=True)
+        parts.append(
+            f'<a class="row-link" href="{detail_href(alert["lkw_id"])}" target="_self">'
+            f'<div class="alert-row">'
+            f'<div class="alert-time">{alert["timestamp"].strftime("%d.%m. %H:%M")}</div>'
+            f'<div>{status_badge(alert["severity"])}</div>'
+            f'<div class="alert-truck">{alert["lkw_id"]}</div>'
+            f'<div class="alert-message">{alert["message"]}{reco_html}'
+            f'<div class="alert-meta">{" · ".join(meta_parts)}</div></div>'
+            f'<div class="{savings_cls}">{savings_html}</div>'
+            f'</div></a>'
+        )
+    parts.append('</div>')
+    st.markdown("".join(parts), unsafe_allow_html=True)
 
     if len(filtered) > MAX_ROWS:
         st.caption(f"{MAX_ROWS} von {len(filtered)} Alerts angezeigt · vollständige Liste im CSV-Export.")
@@ -1681,6 +1849,7 @@ def render_alert_feed():
 # ============================================================================
 def render_role_selection():
     check = icon("check")
+    arrow = icon("arrow-right")
     # Hinweiszeile passt sich an: mit konfigurierten Secrets ist der Zugang
     # passwortgeschützt, ohne läuft die App im offenen Demo-Modus.
     if _password_for("fm") or _password_for("wl"):
@@ -1708,7 +1877,7 @@ def render_role_selection():
                 <li>{check} Kosteneinsparungs-Kalkulation</li>
                 <li>{check} Einzelfahrzeug-Detailansicht</li>
             </ul>
-            <div class="role-card-cta">Anmelden →</div>
+            <div class="role-card-cta">Anmelden {arrow}</div>
         </a>
         <a class="role-card" href="?role=wl&view=fleet" target="_self">
             <div class="role-card-head">
@@ -1724,7 +1893,7 @@ def render_role_selection():
                 <li>{check} Wartungsfeedback erfassen</li>
                 <li>{check} Einzelfahrzeug-Detailansicht</li>
             </ul>
-            <div class="role-card-cta">Anmelden →</div>
+            <div class="role-card-cta">Anmelden {arrow}</div>
         </a>
     </div>
     <div class="role-screen-note">{icon("lock")} {note}</div>
@@ -1808,8 +1977,8 @@ if st.session_state.role:
 
 # Footer
 st.markdown("""
-<div style='text-align:center; padding:1.5rem 0 0.8rem 0; color:var(--text-color); opacity:0.4;
-           font-family:"IBM Plex Mono","Courier New",monospace; font-size:0.65rem;
+<div style='text-align:center; padding:1.5rem 0 0.8rem 0; color:var(--text-color); opacity:0.5;
+           font-family:"Inter",sans-serif; font-size:0.65rem; font-weight:600;
            letter-spacing:0.1em; border-top:1px solid var(--secondary-background-color); margin-top:2rem;'>
     PREMA MVP · HM BIG DATA SS2026 · TEAM 1 · DATEN SIMULIERT · KEIN PRODUKTIVBETRIEB
 </div>

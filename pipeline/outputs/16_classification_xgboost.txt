@@ -1,0 +1,48 @@
+=== 3-Klassen-Klassifikation mit XGBoost ===
+
+Quelle: data\engine_health\engine_data_features.csv
+Label: aus health_score abgeleitet (>0.7 OK, 0.5..0.7 WARNUNG, <=0.5 KRITISCH)
+Wichtig: health_score selbst ist NICHT als Feature dabei.
+
+Modell: xgb.XGBClassifier(n_estimators=300, max_depth=6, random_state=42)
+Features (66): Engine rpm, Lub oil pressure, Fuel pressure, Coolant pressure, lub oil temp, Coolant temp, tire_pressure_bar, brake_fluid_pct, odometer_km, temperature_c, precipitation_mm, load_pct, route_type_encoded, Coolant pressure_delta1, Coolant pressure_dev_baseline, Coolant pressure_lag1, Coolant pressure_lag12, Coolant pressure_lag48, Coolant pressure_roll24h_mean, Coolant pressure_roll24h_std, Coolant pressure_roll6h_mean, Coolant temp_delta1, Coolant temp_dev_baseline, Coolant temp_lag1, Coolant temp_lag12, Coolant temp_lag48, Coolant temp_roll24h_mean, Coolant temp_roll24h_std, Coolant temp_roll6h_mean, Engine rpm_delta1, Engine rpm_dev_baseline, Engine rpm_lag1, Engine rpm_lag12, Engine rpm_lag48, Engine rpm_roll24h_mean, Engine rpm_roll24h_std, Engine rpm_roll6h_mean, Fuel pressure_delta1, Fuel pressure_dev_baseline, Fuel pressure_lag1, Fuel pressure_lag12, Fuel pressure_lag48, Fuel pressure_roll24h_mean, Fuel pressure_roll24h_std, Fuel pressure_roll6h_mean, Lub oil pressure_delta1, Lub oil pressure_dev_baseline, Lub oil pressure_lag1, Lub oil pressure_lag12, Lub oil pressure_lag48, Lub oil pressure_roll24h_mean, Lub oil pressure_roll24h_std, Lub oil pressure_roll6h_mean, day_of_week, hour_of_day, load_high, load_low, load_med, lub oil temp_delta1, lub oil temp_dev_baseline, lub oil temp_lag1, lub oil temp_lag12, lub oil temp_lag48, lub oil temp_roll24h_mean, lub oil temp_roll24h_std, lub oil temp_roll6h_mean
+
+Train-Trucks: LKW-01, LKW-03, LKW-04, LKW-05, LKW-06, LKW-07, LKW-08, LKW-10
+Test-Trucks : LKW-02, LKW-09
+
+Ergebnisse:
+  Accuracy        : 0.7579
+  Macro-F1        : 0.7581
+  Macro-Recall    : 0.7649
+  Recall KRITISCH : 0.8593
+
+Classification Report:
+              precision    recall  f1-score   support
+
+    KRITISCH      0.863     0.859     0.861      2885
+     WARNUNG      0.541     0.778     0.638      2373
+          OK      0.944     0.657     0.775      3382
+
+    accuracy                          0.758      8640
+   macro avg      0.783     0.765     0.758      8640
+weighted avg      0.806     0.758     0.766      8640
+
+Confusion Matrix:
+                 pred_KRITISCH  pred_WARNUNG  pred_OK
+actual_KRITISCH           2479           406        0
+actual_WARNUNG             395          1847      131
+actual_OK                    0          1160     2222
+
+Top-5 Feature Importances:
+  lub oil temp_roll24h_mean: 0.3702
+  temperature_c            : 0.1876
+  brake_fluid_pct          : 0.0997
+  odometer_km              : 0.0749
+  Coolant temp_roll24h_mean: 0.0602
+
+Methodischer Hinweis: Die Klassengrenzen (0.5/0.7) sind
+Heuristiken aus dem MVP-Schwellenwert. health_score wird
+bewusst NICHT als Feature uebergeben, damit das Modell die
+Klasse aus realen Sensoren ableiten muss. Faellt der
+Recall-KRITISCH unter ca. 0.6, ist das ein Indiz, dass die
+Sensor-Drift im Simulator zu schwach ist.

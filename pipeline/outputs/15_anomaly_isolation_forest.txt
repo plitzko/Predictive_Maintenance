@@ -1,0 +1,32 @@
+=== Anomalieerkennung mit Isolation Forest ===
+
+Quelle: data\engine_health\engine_data_features.csv
+Trainings-Anker: erste 14 Tage je LKW (6,720 Zeilen)
+Modell: IsolationForest(n_estimators=200, contamination=0.1, seed=42)
+
+Features (46, ohne health_score und Engine Condition):
+  Engine rpm, Lub oil pressure, Fuel pressure, Coolant pressure, lub oil temp, Coolant temp, tire_pressure_bar, brake_fluid_pct, odometer_km, temperature_c, precipitation_mm, load_pct, route_type_encoded, Coolant pressure_delta1, Coolant pressure_dev_baseline, Coolant pressure_roll24h_mean, Coolant pressure_roll24h_std, Coolant pressure_roll6h_mean, Coolant temp_delta1, Coolant temp_dev_baseline, Coolant temp_roll24h_mean, Coolant temp_roll24h_std, Coolant temp_roll6h_mean, Engine rpm_delta1, Engine rpm_dev_baseline, Engine rpm_roll24h_mean, Engine rpm_roll24h_std, Engine rpm_roll6h_mean, Fuel pressure_delta1, Fuel pressure_dev_baseline, Fuel pressure_roll24h_mean, Fuel pressure_roll24h_std, Fuel pressure_roll6h_mean, Lub oil pressure_delta1, Lub oil pressure_dev_baseline, Lub oil pressure_roll24h_mean, Lub oil pressure_roll24h_std, Lub oil pressure_roll6h_mean, load_high, load_low, load_med, lub oil temp_delta1, lub oil temp_dev_baseline, lub oil temp_roll24h_mean, lub oil temp_roll24h_std, lub oil temp_roll6h_mean
+
+Ergebnisse:
+  Anomalien (default Threshold): 15,123 (35.0%)
+  Anomalien (kalibriert):        9,867 (22.8%)
+  Healthy-Anomalie-Rate: 9.1%
+  Faulty-Anomalie-Rate : 47.5%
+
+Anomalie-Rate pro Truck:
+          rows  anomalies  anomaly_rate  faulty_rate
+truck_id                                            
+LKW-02    4320       1679         38.87        54.00
+LKW-07    4320       1665         38.54        64.61
+LKW-10    4320       1507         34.88        63.38
+LKW-03    4320       1284         29.72        39.42
+LKW-08    4320       1241         28.73        55.44
+LKW-01    4320        859         19.88        46.13
+LKW-04    4320        569         13.17         0.28
+LKW-09    4320        408          9.44        12.75
+LKW-05    4320        379          8.77        21.48
+LKW-06    4320        276          6.39         0.00
+
+Methodischer Hinweis: Die Anker-Phase (erste 14 Tage)
+ist eine Heuristik. In Realitaet sollten Healthy-Anker aus
+validierten Wartungs-/Inspektionszeitfenstern stammen.
