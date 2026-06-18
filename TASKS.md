@@ -108,19 +108,19 @@ Predictive-Maintenance-MVP für LKW-Flotten · Big Data SS2026 · Team 1 · Stan
 
 #### Offen (Ujjwal)
 
-- [x] **Groq-Chatbot „PREMA Copilot" (LKW-Diagnose-Assistent)** — spezialisierter, thematisch eingeschränkter Chat-Assistent für Flottenmanager und Werkstattleiter (`chatbot.py`); globales Sidebar-Panel auf jedem Screen, öffnet über schwebenden »✦ Copilot«-Button; verweigert Off-Topic-Anfragen und Prompt-Injection, kennt Flotte + Alert-Feed und in der Detailansicht zusätzlich die Tiefendaten des gewählten LKW
+- [x] **Groq-Chatbot „PREMA Copilot" (LKW-Diagnose-Assistent)** — spezialisierter, thematisch eingeschränkter Chat-Assistent für Flottenmanager und Werkstattleiter (`chatbot.py`); schwebendes Chat-Widget unten rechts auf jedem Screen, öffnet/schließt per Klick (kein Streamlit-Rerun); verweigert Off-Topic-Anfragen und Prompt-Injection, kennt Flotte + Alert-Feed und in der Detailansicht zusätzlich die Tiefendaten des gewählten LKW
 
   **Teilaufgaben:**
-  - [x] `groq`-Paket eingebunden, API-Key über `st.secrets` (`.streamlit/secrets.toml`, gitignored) oder `GROQ_API_KEY`; Modell `llama-3.3-70b-versatile`
+  - [x] API-Key über `st.secrets` (`.streamlit/secrets.toml`, gitignored) oder `GROQ_API_KEY`; Modell `llama-3.3-70b-versatile`, Endpoint OpenAI-kompatibel
   - [x] System-Prompt: Bot darf **nur** LKW-Diagnose, DTC-Codes, Sensoranomalien und Wartungsempfehlungen beantworten; Off-Topic und „ignoriere deine Anweisungen" werden in einem Satz abgelehnt (live getestet)
   - [x] Dynamische Kontextinjektion: Flottentabelle + Alert-Feed immer; in der Detailansicht zusätzlich Sensorwerte, RUL mit Flottenrang und letzte 8 Alerts des Fokus-LKW; ML-Metriken
   - [x] Statisches Hintergrundwissen: DTC-Referenz, Sensor-Schwellwerte, Status-/RUL-Logik und Kostenmodell als autoritativer Prompt-Block (kein RAG im MVP)
   - [x] Rollenbasierte Antworttiefe: WL bekommt Prüfschritte und Rohwerte, FM betriebliche Konsequenzen und Handlungsempfehlung
-  - [x] Chat-UI: Sidebar-Panel mit `st.chat_message` / `st.chat_input`, Streaming, rollenspezifische Einstiegsfragen als Pills, Kontext-Chip („Flotte" / „Flotte + LKW-xx"), PREMA-Design
-  - [x] Gesprächsverlauf pro Rolle (`st.session_state`), „Neuer Chat"-Button; kein Auto-Scroll in der Detailansicht, da der Chat nicht mehr im Seiteninhalt liegt
+  - [x] **Robustes Floating-Widget** (`components.html` injiziert HTML/JS ins Eltern-Dokument, hängt NICHT an Streamlit-Interna): garantiert sichtbar, FAB unten rechts, Slide-in-Panel, Token-Streaming via Browser-`fetch` direkt an Groq (CORS erlaubt), Einstiegs-Chips, Mini-Markdown, Light/Dark, Enter=Senden/Esc=Schließen
+  - [x] Gesprächsverlauf bleibt über Streamlit-Reruns erhalten (lebt im Eltern-DOM), „Chat zurücksetzen"; kein Auto-Scroll mehr, da der Chat aus dem Seiteninhalt gelöst ist
 
-  **Offen:**
-  - [ ] API-Key rotieren (wurde im Klartext geteilt) und in Streamlit Cloud Secrets hinterlegen
+  **Offen / Hinweis:**
+  - [ ] Der API-Key wird für den clientseitigen Aufruf in den Browser ausgeliefert — für die lokale MVP-Demo ok; vor öffentlichem Deployment serverseitigen Proxy oder rotierten, rate-limitierten Key verwenden
 
 ### Max — Detailansicht, Visualisierung & Demo
 

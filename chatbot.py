@@ -1,27 +1,37 @@
 """
 PREMA Copilot — spezialisierter Groq-Diagnose-Assistent (FA-Erweiterung)
 
-Globales Chat-Panel in der Streamlit-Sidebar: auf jedem Screen über den
-schwebenden »✦ Copilot«-Button erreichbar, fährt von der Seite ein. Der Bot
-kennt immer die ganze Flotte und den aktuellen Alert-Feed; in der
-Detailansicht bekommt er zusätzlich die Tiefendaten des gewählten LKW.
+Schwebendes Chat-Widget unten rechts auf jedem Screen. Anders als die frühere
+Sidebar-Variante hängt das Widget NICHT an Streamlit-Interna: es wird per
+`components.html` als eigenständiges HTML/JS in die Seite injiziert, schwebt
+über allem und ruft Groq direkt aus dem Browser auf (Groq erlaubt CORS). Damit
+ist es garantiert sichtbar, öffnet/schließt sofort ohne Streamlit-Rerun und
+läuft in jedem Browser.
 
-Er beantwortet ausschließlich Fragen zur LKW-Diagnose (Sensorwerte,
-DTC-Codes, RUL, Alerts, Wartung) und lehnt alle anderen Themen ab.
-Antworttiefe ist rollenabhängig: Flottenmanager (fm) erhält betriebliche
-Zusammenfassungen, Werkstattleiter (wl) technische Details und Prüfschritte.
+Er beantwortet ausschließlich Fragen zur LKW-Diagnose (Sensorwerte, DTC-Codes,
+RUL, Alerts, Wartung) und lehnt alle anderen Themen ab. Antworttiefe ist
+rollenabhängig: Flottenmanager (fm) erhält betriebliche Zusammenfassungen,
+Werkstattleiter (wl) technische Details und Prüfschritte.
+
+Hinweis zur Sicherheit: Der API-Key wird in den Browser ausgeliefert (nötig für
+den clientseitigen Aufruf). Für die lokale MVP-Demo akzeptabel; vor einem
+öffentlichen Deployment sollte ein serverseitiger Proxy oder ein rotierter,
+rate-limitierter Key verwendet werden.
 
 Konfiguration (.streamlit/secrets.toml, gitignored):
     [groq]
     api_key = "gsk_..."
 Alternativ: Umgebungsvariable GROQ_API_KEY.
 """
+import json
 import os
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 MAX_HISTORY_MESSAGES = 12   # Kontextfenster klein halten: nur jüngste Runden
 MAX_COMPLETION_TOKENS = 900
 TEMPERATURE = 0.3           # Diagnose-Assistent: faktentreu statt kreativ
@@ -87,12 +97,6 @@ def _api_key() -> str | None:
         return st.secrets["groq"]["api_key"]
     except Exception:
         return os.environ.get("GROQ_API_KEY")
-
-
-@st.cache_resource(show_spinner=False)
-def _client():
-    from groq import Groq
-    return Groq(api_key=_api_key())
 
 
 # ============================================================================
@@ -206,143 +210,6 @@ LIVE-DATEN:
 {live}"""
 
 
-def _stream(messages):
-    response = _client().chat.completions.create(
-        model=GROQ_MODEL,
-        messages=messages,
-        temperature=TEMPERATURE,
-        max_tokens=MAX_COMPLETION_TOKENS,
-        stream=True,
-    )
-    for chunk in response:
-        delta = chunk.choices[0].delta.content
-        if delta:
-            yield delta
-
-
-# ============================================================================
-# UI — Sidebar-Panel mit schwebendem Copilot-Button
-# ============================================================================
-_CHAT_CSS = """
-<style>
-    /* ── Eingeklappter Sidebar-Toggle wird zum schwebenden Copilot-Button ── */
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="collapsedControl"] {
-        top: auto !important; bottom: 1.4rem !important;
-        left: 1.4rem !important;
-        background: linear-gradient(135deg, #FF3D4C 0%, #8B5CF6 100%);
-        border-radius: 99px;
-        padding: 0.55rem 1.05rem !important;
-        box-shadow: 0 6px 22px rgba(255,61,76,0.4);
-        transition: transform 0.18s ease, box-shadow 0.18s ease;
-        z-index: 999;
-    }
-    [data-testid="stSidebarCollapsedControl"]:hover,
-    [data-testid="collapsedControl"]:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 28px rgba(255,61,76,0.5);
-    }
-    [data-testid="stSidebarCollapsedControl"] button,
-    [data-testid="collapsedControl"] button {
-        color: #FFF !important;
-    }
-    [data-testid="stSidebarCollapsedControl"] button svg,
-    [data-testid="collapsedControl"] button svg { display: none; }
-    [data-testid="stSidebarCollapsedControl"] button::after,
-    [data-testid="collapsedControl"] button::after {
-        content: '✦ Copilot';
-        color: #FFF;
-        font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
-        font-size: 0.8rem; font-weight: 700; letter-spacing: 0.05em;
-        white-space: nowrap;
-    }
-
-    /* ── Sidebar als Chat-Panel ── */
-    [data-testid="stSidebar"] {
-        width: 25rem !important;
-        border-right: 1px solid var(--p-border);
-        box-shadow: 8px 0 32px rgba(0,0,0,0.10);
-    }
-    [data-testid="stSidebar"] .block-container,
-    [data-testid="stSidebar"] > div:first-child {
-        padding-top: 1.1rem;
-    }
-
-    .copilot-header {
-        display: flex; align-items: center; gap: 0.65rem;
-        margin: 0 0 0.15rem 0;
-    }
-    .copilot-badge {
-        display: inline-flex; align-items: center; justify-content: center;
-        width: 30px; height: 30px; border-radius: 9px; flex: none;
-        background: linear-gradient(135deg, #FF3D4C 0%, #8B5CF6 100%);
-        color: #FFF; font-family: 'Plus Jakarta Sans', sans-serif;
-        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;
-        box-shadow: 0 4px 14px rgba(255,61,76,0.35);
-    }
-    .copilot-title {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-        font-size: 1rem; font-weight: 700; color: var(--text-color);
-    }
-    .copilot-tag {
-        display: inline-flex; align-items: center; gap: 0.35rem;
-        font-family: 'Inter', monospace; font-size: 0.6rem; font-weight: 600;
-        letter-spacing: 0.08em; text-transform: uppercase;
-        color: var(--text-color); opacity: 0.45;
-        border: 1px solid var(--p-border); border-radius: 99px;
-        padding: 0.12rem 0.5rem;
-    }
-    .copilot-dot {
-        width: 6px; height: 6px; border-radius: 50%; background: var(--p-ok);
-        animation: replayPulse 1.6s ease infinite;
-    }
-    .copilot-context {
-        display: inline-flex; align-items: center; gap: 0.35rem;
-        font-family: 'Inter', monospace; font-size: 0.62rem; font-weight: 600;
-        letter-spacing: 0.07em; text-transform: uppercase;
-        color: var(--text-color); opacity: 0.55;
-        background: rgba(120,120,140,0.12); border-radius: 99px;
-        padding: 0.16rem 0.6rem; margin: 0.35rem 0 0.6rem 0;
-    }
-
-    /* ── Chat-Bubbles ── */
-    [data-testid="stSidebar"] [data-testid="stChatMessage"] {
-        background: var(--background-color);
-        border: 1px solid var(--p-border);
-        border-radius: 12px;
-        padding: 0.65rem 0.8rem;
-        box-shadow: var(--p-shadow);
-        animation: fadeUp 0.25s ease both;
-        font-size: 0.85rem;
-    }
-    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
-        border-left: 3px solid var(--p-accent);
-        background: color-mix(in srgb, #FF3D4C 3%, var(--background-color));
-    }
-    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
-        border-left: 3px solid var(--p-info);
-    }
-    [data-testid="stChatMessageAvatarAssistant"] {
-        background: linear-gradient(135deg, #FF3D4C 0%, #8B5CF6 100%) !important;
-        color: #FFF !important;
-    }
-    [data-testid="stChatInput"] {
-        border: 1px solid var(--p-border); border-radius: 12px;
-        box-shadow: var(--p-shadow);
-    }
-    [data-testid="stChatInput"]:focus-within {
-        border-color: var(--p-accent);
-        box-shadow: 0 0 0 3px var(--p-glow);
-    }
-    div[data-testid="stPills"] button {
-        border-radius: 99px !important;
-        font-size: 0.72rem !important; font-weight: 600 !important;
-        font-family: 'Plus Jakarta Sans', 'Inter', sans-serif !important;
-    }
-</style>
-"""
-
-
 def _starter_questions(role: str, truck: pd.Series | None,
                        fleet: pd.DataFrame) -> list[str]:
     if truck is not None:
@@ -364,85 +231,348 @@ def _starter_questions(role: str, truck: pd.Series | None,
             "Worauf muss ich diese Woche achten?"]
 
 
-def render_chat_sidebar(fleet: pd.DataFrame, alerts: pd.DataFrame,
-                        truck_alerts: pd.DataFrame, ml_metrics: dict,
-                        truck: pd.Series | None = None) -> None:
-    """Globales Copilot-Panel in der Sidebar (auf jedem Screen verfügbar).
+# ============================================================================
+# Floating-Widget (HTML/CSS/JS, in die Eltern-Seite injiziert)
+# ============================================================================
+# Platzhalter __CONFIG__ wird per str.replace ersetzt — so müssen die vielen
+# geschweiften Klammern im JS nicht escaped werden.
+_WIDGET_TEMPLATE = r"""
+<script>
+(function () {
+  var CONFIG = __CONFIG__;
+  var pwin = window.parent;
+  var pdoc = pwin.document;
 
-    `truck` ist gesetzt, wenn der Nutzer eine Detailansicht offen hat — der
-    Bot bekommt dann zusätzlich die Tiefendaten dieses Fahrzeugs. Der
-    Gesprächsverlauf läuft pro Rolle weiter, auch beim Seitenwechsel.
-    """
-    role = st.session_state.get("role") or "fm"
-    st.markdown(_CHAT_CSS, unsafe_allow_html=True)
+  // Bei jedem Streamlit-Rerun läuft dieses Script erneut. Das Widget lebt im
+  // Eltern-Dokument und überlebt den Rerun — wir bauen es nur einmal und
+  // aktualisieren danach nur die (eventuell geänderte) Konfiguration.
+  if (pwin.__premaCopilot) {
+    pwin.__premaCopilot.config = CONFIG;
+    pwin.__premaCopilot.refreshStarters && pwin.__premaCopilot.refreshStarters();
+    return;
+  }
+  var STATE = pwin.__premaCopilot = { config: CONFIG, messages: [], open: false, busy: false };
 
-    with st.sidebar:
-        context_label = f"Kontext: Flotte + {truck['lkw_id']}" if truck is not None \
-            else "Kontext: gesamte Flotte"
-        st.markdown(f"""
-        <div class="copilot-header">
-            <span class="copilot-badge">AI</span>
-            <span class="copilot-title">PREMA Copilot</span>
-            <span class="copilot-tag"><span class="copilot-dot"></span>Groq · Llama 3.3</span>
+  // ── Styles ──
+  var style = pdoc.createElement('style');
+  style.textContent = `
+    #prema-copilot, #prema-copilot * { box-sizing: border-box; font-family: 'Inter','Segoe UI',-apple-system,sans-serif; }
+    #prema-copilot {
+      --pc-grad: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
+      --pc-bg: #FFFFFF; --pc-surface: #F5F6FA; --pc-text: #1A1A22;
+      --pc-muted: #6B7280; --pc-border: rgba(120,120,140,0.20);
+      --pc-user: #2563EB;
+    }
+    @media (prefers-color-scheme: dark) {
+      #prema-copilot {
+        --pc-bg: #15151B; --pc-surface: #1F1F28; --pc-text: #ECECF1;
+        --pc-muted: #9A9AA8; --pc-border: rgba(255,255,255,0.12);
+      }
+    }
+    #pc-launcher {
+      position: fixed; bottom: 24px; right: 24px; z-index: 2147483000;
+      display: flex; align-items: center; gap: 10px;
+      padding: 13px 20px 13px 16px; border: none; cursor: pointer;
+      border-radius: 999px; color: #fff; background: var(--pc-grad);
+      box-shadow: 0 10px 30px rgba(37,99,235,0.42);
+      font-size: 14.5px; font-weight: 700; letter-spacing: 0.01em;
+      transition: transform .18s ease, box-shadow .18s ease;
+    }
+    #pc-launcher:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 14px 38px rgba(37,99,235,0.55); }
+    #pc-launcher .pc-ic { width: 22px; height: 22px; display: inline-flex; }
+    #pc-launcher .pc-pulse {
+      position: absolute; top: 11px; right: 14px; width: 9px; height: 9px;
+      border-radius: 50%; background: #34D399; box-shadow: 0 0 0 0 rgba(52,211,153,0.7);
+      animation: pcPulse 1.8s infinite;
+    }
+    @keyframes pcPulse { 0%{box-shadow:0 0 0 0 rgba(52,211,153,.6)} 70%{box-shadow:0 0 0 8px rgba(52,211,153,0)} 100%{box-shadow:0 0 0 0 rgba(52,211,153,0)} }
+
+    #pc-panel {
+      position: fixed; bottom: 92px; right: 24px; z-index: 2147483000;
+      width: 392px; max-width: calc(100vw - 32px);
+      height: 620px; max-height: calc(100vh - 130px);
+      background: var(--pc-bg); color: var(--pc-text);
+      border: 1px solid var(--pc-border); border-radius: 18px;
+      box-shadow: 0 24px 70px rgba(0,0,0,0.30);
+      display: flex; flex-direction: column; overflow: hidden;
+      transform: translateY(16px) scale(0.97); opacity: 0; pointer-events: none;
+      transition: transform .22s cubic-bezier(.2,.8,.2,1), opacity .22s ease;
+    }
+    #prema-copilot.pc-open #pc-panel { transform: none; opacity: 1; pointer-events: auto; }
+    #prema-copilot.pc-open #pc-launcher { transform: scale(0.9); opacity: 0.92; }
+
+    .pc-head { display: flex; align-items: center; gap: 11px; padding: 15px 16px;
+      background: var(--pc-grad); color: #fff; }
+    .pc-avatar { width: 38px; height: 38px; border-radius: 11px; flex: none;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.18); font-weight: 800; font-size: 13px; letter-spacing: .02em; }
+    .pc-htext { flex: 1; min-width: 0; }
+    .pc-htitle { font-weight: 800; font-size: 15px; letter-spacing: .01em; }
+    .pc-hsub { font-size: 11px; opacity: .85; display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+    .pc-hsub .pc-live { width: 7px; height: 7px; border-radius: 50%; background: #34D399; }
+    .pc-close { background: rgba(255,255,255,0.16); border: none; color: #fff; cursor: pointer;
+      width: 30px; height: 30px; border-radius: 9px; font-size: 18px; line-height: 1;
+      display: flex; align-items: center; justify-content: center; transition: background .15s; }
+    .pc-close:hover { background: rgba(255,255,255,0.30); }
+
+    #pc-body { flex: 1; overflow-y: auto; padding: 16px; background: var(--pc-surface);
+      display: flex; flex-direction: column; gap: 12px; }
+    #pc-body::-webkit-scrollbar { width: 8px; }
+    #pc-body::-webkit-scrollbar-thumb { background: var(--pc-border); border-radius: 4px; }
+
+    .pc-msg { max-width: 86%; padding: 10px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.5;
+      animation: pcUp .22s ease both; word-wrap: break-word; overflow-wrap: anywhere; }
+    @keyframes pcUp { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+    .pc-msg.user { align-self: flex-end; background: var(--pc-user); color: #fff; border-bottom-right-radius: 5px; }
+    .pc-msg.bot { align-self: flex-start; background: var(--pc-bg); color: var(--pc-text);
+      border: 1px solid var(--pc-border); border-bottom-left-radius: 5px; }
+    .pc-msg.bot strong { font-weight: 700; }
+    .pc-msg.bot ul { margin: 6px 0; padding-left: 18px; }
+    .pc-msg.bot li { margin: 2px 0; }
+    .pc-msg.bot code { background: var(--pc-surface); padding: 1px 5px; border-radius: 5px; font-size: 12px;
+      font-family: 'SFMono-Regular',Consolas,monospace; }
+    .pc-msg.bot h4 { margin: 8px 0 4px; font-size: 13px; font-weight: 800; }
+    .pc-msg.bot p { margin: 5px 0; }
+
+    .pc-intro { text-align: center; color: var(--pc-muted); padding: 14px 8px 2px; }
+    .pc-intro .pc-bigicon { width: 46px; height: 46px; margin: 0 auto 10px;
+      border-radius: 14px; background: var(--pc-grad); display: flex; align-items: center;
+      justify-content: center; color: #fff; box-shadow: 0 8px 22px rgba(37,99,235,0.4); }
+    .pc-intro h3 { color: var(--pc-text); font-size: 15px; font-weight: 800; margin: 0 0 4px; }
+    .pc-intro p { font-size: 12.5px; margin: 0 0 4px; line-height: 1.5; }
+    .pc-ctx { display: inline-block; margin-top: 8px; font-size: 10.5px; font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase; color: var(--pc-muted);
+      background: var(--pc-surface); border: 1px solid var(--pc-border); border-radius: 999px; padding: 4px 10px; }
+    .pc-chips { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+    .pc-chip { text-align: left; padding: 11px 13px; border-radius: 11px; cursor: pointer;
+      background: var(--pc-bg); border: 1px solid var(--pc-border); color: var(--pc-text);
+      font-size: 13px; font-weight: 500; transition: all .15s; display: flex; align-items: center; gap: 9px; }
+    .pc-chip:hover { border-color: var(--pc-user); transform: translateX(2px);
+      box-shadow: 0 3px 12px rgba(37,99,235,0.16); }
+    .pc-chip .pc-arrow { margin-left: auto; color: var(--pc-user); opacity: .5; }
+
+    .pc-typing { display: inline-flex; gap: 4px; padding: 4px 2px; }
+    .pc-typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--pc-muted);
+      animation: pcBlink 1.2s infinite both; }
+    .pc-typing span:nth-child(2){ animation-delay: .2s } .pc-typing span:nth-child(3){ animation-delay: .4s }
+    @keyframes pcBlink { 0%,80%,100%{opacity:.25} 40%{opacity:1} }
+
+    .pc-foot { padding: 11px 12px; background: var(--pc-bg); border-top: 1px solid var(--pc-border); }
+    .pc-inputrow { display: flex; align-items: flex-end; gap: 8px;
+      background: var(--pc-surface); border: 1px solid var(--pc-border); border-radius: 13px; padding: 6px 6px 6px 13px;
+      transition: border-color .15s, box-shadow .15s; }
+    .pc-inputrow:focus-within { border-color: var(--pc-user); box-shadow: 0 0 0 3px rgba(37,99,235,0.16); }
+    #pc-input { flex: 1; border: none; outline: none; resize: none; background: transparent; color: var(--pc-text);
+      font-size: 13.5px; line-height: 1.4; max-height: 96px; padding: 5px 0; }
+    #pc-input::placeholder { color: var(--pc-muted); }
+    #pc-send { flex: none; width: 36px; height: 36px; border: none; border-radius: 10px; cursor: pointer;
+      background: var(--pc-grad); color: #fff; display: flex; align-items: center; justify-content: center;
+      transition: transform .15s, opacity .15s; }
+    #pc-send:hover { transform: scale(1.06); } #pc-send:disabled { opacity: .4; cursor: default; transform: none; }
+    .pc-disclaimer { text-align: center; font-size: 10px; color: var(--pc-muted); margin-top: 7px; }
+    .pc-reset { background: none; border: none; color: var(--pc-user); cursor: pointer; font-size: 11px; font-weight: 600; }
+  `;
+  pdoc.head.appendChild(style);
+
+  // ── Markup ──
+  var root = pdoc.createElement('div');
+  root.id = 'prema-copilot';
+  root.innerHTML = `
+    <button id="pc-launcher" aria-label="PREMA Copilot öffnen">
+      <span class="pc-pulse"></span>
+      <span class="pc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+      <span>Copilot</span>
+    </button>
+    <div id="pc-panel" role="dialog" aria-label="PREMA Copilot">
+      <div class="pc-head">
+        <div class="pc-avatar">AI</div>
+        <div class="pc-htext">
+          <div class="pc-htitle">PREMA Copilot</div>
+          <div class="pc-hsub"><span class="pc-live"></span>Groq · Llama 3.3 70B · Diagnose-Assistent</div>
         </div>
-        <div class="copilot-context">⌖ {context_label}</div>
-        """, unsafe_allow_html=True)
+        <button class="pc-close" aria-label="Schließen">×</button>
+      </div>
+      <div id="pc-body"></div>
+      <div class="pc-foot">
+        <div class="pc-inputrow">
+          <textarea id="pc-input" rows="1" placeholder="Frage zur LKW-Diagnose …"></textarea>
+          <button id="pc-send" aria-label="Senden">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+        <div class="pc-disclaimer">Nur LKW-Diagnose · Antworten können Fehler enthalten · <button class="pc-reset" id="pc-reset">Chat zurücksetzen</button></div>
+      </div>
+    </div>`;
+  pdoc.body.appendChild(root);
 
-        if not _api_key():
-            st.info(
-                "Groq-API-Key fehlt. In `.streamlit/secrets.toml` hinterlegen:\n\n"
-                "```toml\n[groq]\napi_key = \"gsk_...\"\n```\n"
-                "oder Umgebungsvariable `GROQ_API_KEY` setzen."
-            )
-            return
-        try:
-            import groq  # noqa: F401
-        except ImportError:
-            st.warning("Paket fehlt: `pip install groq` (siehe requirements.txt).")
-            return
+  var elBody = root.querySelector('#pc-body');
+  var elInput = root.querySelector('#pc-input');
+  var elSend = root.querySelector('#pc-send');
 
-        history_key = f"copilot_history_{role}"
-        history = st.session_state.setdefault(history_key, [])
+  // ── Mini-Markdown (sicher: erst escapen, dann gezielt formatieren) ──
+  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function mdToHtml(src) {
+    var lines = esc(src).split('\n'), out = [], list = null;
+    function fmt(t){
+      return t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+              .replace(/`([^`]+)`/g,'<code>$1</code>');
+    }
+    for (var i=0;i<lines.length;i++){
+      var ln = lines[i];
+      var m = ln.match(/^\s*[-*]\s+(.*)$/);
+      if (m){ if(!list){ list=[]; } list.push('<li>'+fmt(m[1])+'</li>'); continue; }
+      if (list){ out.push('<ul>'+list.join('')+'</ul>'); list=null; }
+      var h = ln.match(/^#{1,6}\s+(.*)$/);
+      if (h){ out.push('<h4>'+fmt(h[1])+'</h4>'); continue; }
+      if (ln.trim()===''){ continue; }
+      out.push('<p>'+fmt(ln)+'</p>');
+    }
+    if (list) out.push('<ul>'+list.join('')+'</ul>');
+    return out.join('');
+  }
 
-        for msg in history:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
+  function scrollDown(){ elBody.scrollTop = elBody.scrollHeight; }
 
-        # Einstiegsfragen nur vor der ersten Nachricht — danach räumt
-        # Streamlit den Pill-State automatisch weg, nichts feuert doppelt.
-        prompt = None
-        if not history:
-            st.caption("Stell mir eine Frage zur Flotte — zum Beispiel:")
-            prompt = st.pills(
-                "Vorschläge", _starter_questions(role, truck, fleet),
-                key="copilot_chips", label_visibility="collapsed",
-            )
-        typed = st.chat_input("Frage zur LKW-Diagnose …", key="copilot_input")
-        prompt = typed or prompt
+  function renderIntro() {
+    var cfg = STATE.config;
+    var chips = (cfg.starters||[]).map(function(q){
+      return '<button class="pc-chip" data-q="'+esc(q).replace(/"/g,'&quot;')+'">'+esc(q)+
+             '<span class="pc-arrow">→</span></button>';
+    }).join('');
+    elBody.innerHTML =
+      '<div class="pc-intro">'+
+        '<div class="pc-bigicon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a5 5 0 0 1 5 5v2a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"/><path d="M19 13a7 7 0 0 1-14 0"/><line x1="12" y1="20" x2="12" y2="22"/></svg></div>'+
+        '<h3>Wie kann ich helfen?</h3>'+
+        '<p>Ich kenne den Live-Zustand deiner Flotte, alle Alerts und die DTC-Referenz.</p>'+
+        '<div class="pc-ctx">⌖ '+esc(cfg.contextLabel)+'</div>'+
+        '<div class="pc-chips">'+chips+'</div>'+
+      '</div>';
+    elBody.querySelectorAll('.pc-chip').forEach(function(c){
+      c.addEventListener('click', function(){ send(c.getAttribute('data-q')); });
+    });
+  }
 
-        if history and not prompt:
-            if st.button("↺ Neuer Chat", key="copilot_reset"):
-                st.session_state[history_key] = []
-                st.rerun()
+  function renderHistory() {
+    if (!STATE.messages.length) { renderIntro(); return; }
+    elBody.innerHTML = '';
+    STATE.messages.forEach(function(m){
+      var d = pdoc.createElement('div');
+      d.className = 'pc-msg ' + (m.role==='user'?'user':'bot');
+      d.innerHTML = m.role==='user' ? esc(m.content) : mdToHtml(m.content);
+      elBody.appendChild(d);
+    });
+    scrollDown();
+  }
 
-        if not prompt:
-            return
+  // STATE.refreshStarters: nach Kontextwechsel (neue Seite) die Chips updaten,
+  // solange noch keine Konversation läuft.
+  STATE.refreshStarters = function(){ if(!STATE.messages.length) renderIntro(); };
 
-        history.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+  async function streamGroq(messages, onToken) {
+    var cfg = STATE.config;
+    var res = await fetch(cfg.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey },
+      body: JSON.stringify({ model: cfg.model, messages: messages, temperature: cfg.temperature,
+                             max_tokens: cfg.maxTokens, stream: true })
+    });
+    if (!res.ok) { var t = await res.text(); throw new Error('HTTP ' + res.status + ' – ' + t.slice(0,200)); }
+    var reader = res.body.getReader(), dec = new TextDecoder(), buf = '';
+    while (true) {
+      var r = await reader.read(); if (r.done) break;
+      buf += dec.decode(r.value, { stream: true });
+      var parts = buf.split('\n'); buf = parts.pop();
+      for (var i=0;i<parts.length;i++){
+        var line = parts[i].trim();
+        if (line.indexOf('data:') !== 0) continue;
+        var data = line.slice(5).trim();
+        if (data === '[DONE]') return;
+        try { var j = JSON.parse(data); var dlt = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
+              if (dlt) onToken(dlt); } catch(e){}
+      }
+    }
+  }
 
-        messages = [{"role": "system",
-                     "content": _system_prompt(role, fleet, alerts, truck_alerts,
-                                               ml_metrics, truck)}]
-        messages += history[-MAX_HISTORY_MESSAGES:]
+  async function send(text) {
+    text = (text||'').trim();
+    if (!text || STATE.busy) return;
+    STATE.busy = true; elSend.disabled = true;
+    if (!STATE.messages.length) elBody.innerHTML = '';
 
-        with st.chat_message("assistant"):
-            try:
-                reply = st.write_stream(_stream(messages))
-            except Exception as e:
-                st.error(f"Groq-Anfrage fehlgeschlagen: {e}")
-                history.pop()  # Frage nicht ohne Antwort im Verlauf lassen
-                return
-        history.append({"role": "assistant", "content": reply})
-        st.rerun()  # Reset-Button nach der Antwort einblenden
+    STATE.messages.push({ role:'user', content:text });
+    var u = pdoc.createElement('div'); u.className='pc-msg user'; u.textContent=text; elBody.appendChild(u);
+    elInput.value=''; elInput.style.height='auto'; scrollDown();
+
+    var bot = pdoc.createElement('div'); bot.className='pc-msg bot';
+    bot.innerHTML = '<div class="pc-typing"><span></span><span></span><span></span></div>';
+    elBody.appendChild(bot); scrollDown();
+
+    var cfg = STATE.config;
+    var convo = STATE.messages.slice(-cfg.maxHistory);
+    var payload = [{ role:'system', content: cfg.systemPrompt }].concat(convo);
+    var acc = '';
+    try {
+      await streamGroq(payload, function(tok){ acc += tok; bot.innerHTML = mdToHtml(acc); scrollDown(); });
+      if (!acc) { acc = 'Keine Antwort erhalten.'; bot.innerHTML = mdToHtml(acc); }
+      STATE.messages.push({ role:'assistant', content: acc });
+    } catch (err) {
+      bot.innerHTML = '<strong>Verbindungsfehler.</strong> ' + esc(String(err.message||err));
+      STATE.messages.pop();
+    } finally {
+      STATE.busy = false; elSend.disabled = false; elInput.focus();
+    }
+  }
+
+  function setOpen(o){ STATE.open=o; root.classList.toggle('pc-open', o); if(o){ scrollDown(); elInput.focus(); } }
+
+  root.querySelector('#pc-launcher').addEventListener('click', function(){ setOpen(!STATE.open); });
+  root.querySelector('.pc-close').addEventListener('click', function(){ setOpen(false); });
+  root.querySelector('#pc-reset').addEventListener('click', function(){ STATE.messages=[]; renderIntro(); });
+  elSend.addEventListener('click', function(){ send(elInput.value); });
+  elInput.addEventListener('keydown', function(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(elInput.value); } });
+  elInput.addEventListener('input', function(){ elInput.style.height='auto'; elInput.style.height=Math.min(elInput.scrollHeight,96)+'px'; });
+  pdoc.addEventListener('keydown', function(e){ if(e.key==='Escape' && STATE.open) setOpen(false); });
+
+  renderHistory();
+})();
+</script>
+"""
+
+
+def render_chat_widget(fleet: pd.DataFrame, alerts: pd.DataFrame,
+                       truck_alerts: pd.DataFrame, ml_metrics: dict,
+                       truck: pd.Series | None = None) -> None:
+    """Schwebendes Copilot-Widget (unten rechts, auf jedem Screen sichtbar).
+
+    Wird per `components.html` in die Seite injiziert und ruft Groq direkt aus
+    dem Browser auf. `truck` setzt den Fokus auf ein Fahrzeug (Detailansicht).
+    """
+    api_key = _api_key()
+    if not api_key:
+        st.warning(
+            "PREMA Copilot inaktiv: Groq-API-Key fehlt. In "
+            "`.streamlit/secrets.toml` `[groq]` → `api_key` hinterlegen "
+            "oder `GROQ_API_KEY` setzen.",
+            icon="🤖",
+        )
+        return
+
+    role = st.session_state.get("role") or "fm"
+    context_label = (f"Kontext: Flotte + {truck['lkw_id']}" if truck is not None
+                     else "Kontext: gesamte Flotte")
+
+    config = {
+        "endpoint": GROQ_ENDPOINT,
+        "apiKey": api_key,
+        "model": GROQ_MODEL,
+        "temperature": TEMPERATURE,
+        "maxTokens": MAX_COMPLETION_TOKENS,
+        "maxHistory": MAX_HISTORY_MESSAGES,
+        "systemPrompt": _system_prompt(role, fleet, alerts, truck_alerts, ml_metrics, truck),
+        "starters": _starter_questions(role, truck, fleet),
+        "contextLabel": context_label,
+    }
+    html = _WIDGET_TEMPLATE.replace("__CONFIG__", json.dumps(config))
+    # height=0: das Widget selbst lebt im Eltern-Dokument, der Komponenten-
+    # Iframe dient nur als Träger für das Script.
+    components.html(html, height=0, width=0)

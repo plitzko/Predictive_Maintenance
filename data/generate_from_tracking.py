@@ -426,8 +426,12 @@ def main() -> None:
             OUTPUT_DIR / "replay_alerts.csv", index=False
         )
     else:
-        pd.DataFrame(columns=REPLAY_COLS).to_csv(OUTPUT_DIR / "replay.csv", index=False)
-        pd.DataFrame(columns=ALERT_COLS).to_csv(OUTPUT_DIR / "replay_alerts.csv", index=False)
+        # Only write empty stubs if no replay data exists yet — never clobber
+        # committed replay files when the source lacks health_score.
+        if not (OUTPUT_DIR / "replay.csv").exists():
+            pd.DataFrame(columns=REPLAY_COLS).to_csv(OUTPUT_DIR / "replay.csv", index=False)
+        if not (OUTPUT_DIR / "replay_alerts.csv").exists():
+            pd.DataFrame(columns=ALERT_COLS).to_csv(OUTPUT_DIR / "replay_alerts.csv", index=False)
 
     # -- metrics.json: ML-Guete aus den Pipeline-Reports (FA-6) ---------------
     metrics = _parse_report_metrics()
