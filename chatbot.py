@@ -277,7 +277,7 @@ _WIDGET_TEMPLATE = r"""
 
     /* ── Launcher (FAB) ── */
     #pc-launcher {
-      position: fixed; bottom: 24px; right: 24px; z-index: 2147483000;
+      position: fixed; bottom: 52px; right: 24px; z-index: 2147483000;
       display: flex; align-items: center; gap: 10px;
       padding: 13px 20px 13px 17px; border: none; cursor: pointer;
       border-radius: 999px; color: #fff;
@@ -299,7 +299,7 @@ _WIDGET_TEMPLATE = r"""
 
     /* ── Panel ── */
     #pc-panel {
-      position: fixed; bottom: 92px; right: 24px; z-index: 2147483000;
+      position: fixed; bottom: 120px; right: 24px; z-index: 2147483000;
       width: 398px; max-width: calc(100vw - 32px);
       height: 624px; max-height: calc(100vh - 132px);
       background: var(--pc-bg); -webkit-backdrop-filter: blur(22px) saturate(1.3); backdrop-filter: blur(22px) saturate(1.3);
