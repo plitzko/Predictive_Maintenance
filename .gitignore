@@ -9,4 +9,5 @@ __pycache__/
 
 # Secrets & lokale Konfiguration
 .env
+.streamlit/secrets.toml
 .DS_Store

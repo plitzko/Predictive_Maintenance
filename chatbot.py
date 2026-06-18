@@ -166,9 +166,10 @@ def _truck_focus(truck: pd.Series, fleet: pd.DataFrame,
     else:
         lines += ["", f"### Alerts {tid} (30 Tage, neueste zuerst)"]
         for a in history.itertuples():
-            dtc = f" · DTC {a.dtc_code}" if isinstance(a.dtc_code, str) and a.dtc_code.strip() else ""
-            reco = f" · Empfehlung: {a.recommendation}" \
-                if isinstance(a.recommendation, str) and a.recommendation.strip() else ""
+            dtc_v = getattr(a, "dtc_code", None)
+            dtc = f" · DTC {dtc_v}" if isinstance(dtc_v, str) and dtc_v.strip() else ""
+            reco_v = getattr(a, "recommendation", None)
+            reco = f" · Empfehlung: {reco_v}" if isinstance(reco_v, str) and reco_v.strip() else ""
             lines.append(f"- {a.timestamp:%d.%m. %H:%M} [{a.severity}] {a.message}{dtc}{reco}")
     return "\n".join(lines)
 
@@ -197,7 +198,8 @@ usw.) antworte in einem Satz, dass du nur bei der LKW-Diagnose helfen kannst \
 Hintergrundwissen. Erfinde keine Messwerte, DTC-Codes oder Empfehlungen. \
 Fehlt dir eine Information, sage das offen.
 4. Antworte auf Deutsch, präzise und kompakt (in der Regel unter 150 Wörter). \
-Nutze Markdown-Listen und **Fettdruck** für Lesbarkeit.
+Strukturiere mit **Fettdruck**, Aufzählungen (- …) und nummerierten Schritten \
+(1. …) für gute Lesbarkeit.
 5. Sicherheitskritische Befunde (Status KRITISCH, Bremsen, Öldruck) nennst du \
 immer zuerst. Weise bei Prognosen auf die Modellunsicherheit hin.
 
@@ -253,124 +255,147 @@ _WIDGET_TEMPLATE = r"""
   }
   var STATE = pwin.__premaCopilot = { config: CONFIG, messages: [], open: false, busy: false };
 
+  var BOT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="12" rx="3"/><circle cx="9" cy="14" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="14" r="1.4" fill="currentColor" stroke="none"/><path d="M12 8V4"/><circle cx="12" cy="3" r="1.4"/></svg>';
+
   // ── Styles ──
   var style = pdoc.createElement('style');
   style.textContent = `
     #prema-copilot, #prema-copilot * { box-sizing: border-box; font-family: 'Inter','Segoe UI',-apple-system,sans-serif; }
     #prema-copilot {
+      --pc-g1: #2563EB; --pc-g2: #7C3AED;
       --pc-grad: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
-      --pc-bg: #FFFFFF; --pc-surface: #F5F6FA; --pc-text: #1A1A22;
-      --pc-muted: #6B7280; --pc-border: rgba(120,120,140,0.20);
+      --pc-bg: rgba(255,255,255,0.86); --pc-solid: #FFFFFF; --pc-surface: #F4F5FA;
+      --pc-text: #16161E; --pc-muted: #6B7280; --pc-border: rgba(120,120,140,0.18);
       --pc-user: #2563EB;
     }
     @media (prefers-color-scheme: dark) {
       #prema-copilot {
-        --pc-bg: #15151B; --pc-surface: #1F1F28; --pc-text: #ECECF1;
-        --pc-muted: #9A9AA8; --pc-border: rgba(255,255,255,0.12);
+        --pc-bg: rgba(22,22,28,0.82); --pc-solid: #181820; --pc-surface: #1E1E27;
+        --pc-text: #ECECF1; --pc-muted: #9A9AA8; --pc-border: rgba(255,255,255,0.10);
       }
     }
+
+    /* ── Launcher (FAB) ── */
     #pc-launcher {
       position: fixed; bottom: 24px; right: 24px; z-index: 2147483000;
       display: flex; align-items: center; gap: 10px;
-      padding: 13px 20px 13px 16px; border: none; cursor: pointer;
-      border-radius: 999px; color: #fff; background: var(--pc-grad);
-      box-shadow: 0 10px 30px rgba(37,99,235,0.42);
+      padding: 13px 20px 13px 17px; border: none; cursor: pointer;
+      border-radius: 999px; color: #fff;
+      background: linear-gradient(120deg, #2563EB, #7C3AED, #2563EB);
+      background-size: 220% 220%; animation: pcShimmer 7s ease infinite, pcPop .4s cubic-bezier(.2,.9,.3,1.4) both;
+      box-shadow: 0 12px 32px rgba(37,99,235,0.45);
       font-size: 14.5px; font-weight: 700; letter-spacing: 0.01em;
       transition: transform .18s ease, box-shadow .18s ease;
     }
-    #pc-launcher:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 14px 38px rgba(37,99,235,0.55); }
+    #pc-launcher:hover { transform: translateY(-2px) scale(1.03); box-shadow: 0 16px 40px rgba(124,58,237,0.55); }
     #pc-launcher .pc-ic { width: 22px; height: 22px; display: inline-flex; }
     #pc-launcher .pc-pulse {
-      position: absolute; top: 11px; right: 14px; width: 9px; height: 9px;
+      position: absolute; top: 10px; right: 13px; width: 9px; height: 9px;
       border-radius: 50%; background: #34D399; box-shadow: 0 0 0 0 rgba(52,211,153,0.7);
-      animation: pcPulse 1.8s infinite;
-    }
+      animation: pcPulse 1.8s infinite; }
+    @keyframes pcShimmer { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+    @keyframes pcPop { from{opacity:0; transform:scale(.6) translateY(10px)} to{opacity:1; transform:none} }
     @keyframes pcPulse { 0%{box-shadow:0 0 0 0 rgba(52,211,153,.6)} 70%{box-shadow:0 0 0 8px rgba(52,211,153,0)} 100%{box-shadow:0 0 0 0 rgba(52,211,153,0)} }
 
+    /* ── Panel ── */
     #pc-panel {
       position: fixed; bottom: 92px; right: 24px; z-index: 2147483000;
-      width: 392px; max-width: calc(100vw - 32px);
-      height: 620px; max-height: calc(100vh - 130px);
-      background: var(--pc-bg); color: var(--pc-text);
-      border: 1px solid var(--pc-border); border-radius: 18px;
-      box-shadow: 0 24px 70px rgba(0,0,0,0.30);
+      width: 398px; max-width: calc(100vw - 32px);
+      height: 624px; max-height: calc(100vh - 132px);
+      background: var(--pc-bg); -webkit-backdrop-filter: blur(22px) saturate(1.3); backdrop-filter: blur(22px) saturate(1.3);
+      color: var(--pc-text); border: 1px solid var(--pc-border); border-radius: 20px;
+      box-shadow: 0 28px 80px rgba(20,20,40,0.34), 0 2px 8px rgba(0,0,0,0.10);
       display: flex; flex-direction: column; overflow: hidden;
-      transform: translateY(16px) scale(0.97); opacity: 0; pointer-events: none;
-      transition: transform .22s cubic-bezier(.2,.8,.2,1), opacity .22s ease;
+      transform: translateY(18px) scale(0.96); opacity: 0; pointer-events: none;
+      transition: transform .26s cubic-bezier(.2,.9,.25,1), opacity .22s ease;
     }
     #prema-copilot.pc-open #pc-panel { transform: none; opacity: 1; pointer-events: auto; }
-    #prema-copilot.pc-open #pc-launcher { transform: scale(0.9); opacity: 0.92; }
+    #prema-copilot.pc-open #pc-launcher { transform: scale(0.88); opacity: 0.9; }
 
     .pc-head { display: flex; align-items: center; gap: 11px; padding: 15px 16px;
-      background: var(--pc-grad); color: #fff; }
-    .pc-avatar { width: 38px; height: 38px; border-radius: 11px; flex: none;
+      background: var(--pc-grad); color: #fff; position: relative; overflow: hidden; }
+    .pc-head::after { content:''; position:absolute; inset:0;
+      background: radial-gradient(120px 60px at 88% -10%, rgba(255,255,255,.35), transparent 70%); }
+    .pc-avatar { width: 40px; height: 40px; border-radius: 12px; flex: none; z-index:1;
       display: flex; align-items: center; justify-content: center;
-      background: rgba(255,255,255,0.18); font-weight: 800; font-size: 13px; letter-spacing: .02em; }
-    .pc-htext { flex: 1; min-width: 0; }
+      background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.25); }
+    .pc-avatar svg { width: 22px; height: 22px; }
+    .pc-htext { flex: 1; min-width: 0; z-index:1; }
     .pc-htitle { font-weight: 800; font-size: 15px; letter-spacing: .01em; }
-    .pc-hsub { font-size: 11px; opacity: .85; display: flex; align-items: center; gap: 6px; margin-top: 2px; }
-    .pc-hsub .pc-live { width: 7px; height: 7px; border-radius: 50%; background: #34D399; }
-    .pc-close { background: rgba(255,255,255,0.16); border: none; color: #fff; cursor: pointer;
+    .pc-hsub { font-size: 11px; opacity: .9; display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+    .pc-hsub .pc-live { width: 7px; height: 7px; border-radius: 50%; background: #34D399; box-shadow:0 0 8px #34D399; }
+    .pc-close { z-index:1; background: rgba(255,255,255,0.16); border: none; color: #fff; cursor: pointer;
       width: 30px; height: 30px; border-radius: 9px; font-size: 18px; line-height: 1;
       display: flex; align-items: center; justify-content: center; transition: background .15s; }
-    .pc-close:hover { background: rgba(255,255,255,0.30); }
+    .pc-close:hover { background: rgba(255,255,255,0.32); }
 
-    #pc-body { flex: 1; overflow-y: auto; padding: 16px; background: var(--pc-surface);
-      display: flex; flex-direction: column; gap: 12px; }
-    #pc-body::-webkit-scrollbar { width: 8px; }
+    #pc-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 11px;
+      background: linear-gradient(180deg, transparent, rgba(120,120,150,0.04)); }
+    #pc-body::-webkit-scrollbar { width: 7px; }
     #pc-body::-webkit-scrollbar-thumb { background: var(--pc-border); border-radius: 4px; }
 
-    .pc-msg { max-width: 86%; padding: 10px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.5;
-      animation: pcUp .22s ease both; word-wrap: break-word; overflow-wrap: anywhere; }
-    @keyframes pcUp { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
-    .pc-msg.user { align-self: flex-end; background: var(--pc-user); color: #fff; border-bottom-right-radius: 5px; }
-    .pc-msg.bot { align-self: flex-start; background: var(--pc-bg); color: var(--pc-text);
-      border: 1px solid var(--pc-border); border-bottom-left-radius: 5px; }
+    /* ── Messages ── */
+    .pc-row { display: flex; gap: 8px; align-items: flex-end; align-self: flex-start; max-width: 92%;
+      animation: pcUp .24s ease both; }
+    @keyframes pcUp { from{opacity:0; transform:translateY(7px)} to{opacity:1; transform:none} }
+    .pc-mini { width: 27px; height: 27px; border-radius: 9px; flex: none; background: var(--pc-grad);
+      color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(37,99,235,.35); }
+    .pc-mini svg { width: 16px; height: 16px; }
+    .pc-msg { padding: 10px 13px; border-radius: 15px; font-size: 13.5px; line-height: 1.5;
+      word-wrap: break-word; overflow-wrap: anywhere; }
+    .pc-msg.user { align-self: flex-end; max-width: 86%; background: var(--pc-grad); color: #fff;
+      border-bottom-right-radius: 5px; box-shadow: 0 4px 14px rgba(37,99,235,.28); animation: pcUp .24s ease both; }
+    .pc-msg.bot { background: var(--pc-solid); color: var(--pc-text); border: 1px solid var(--pc-border);
+      border-bottom-left-radius: 5px; box-shadow: 0 2px 10px rgba(20,20,40,0.05); }
     .pc-msg.bot strong { font-weight: 700; }
-    .pc-msg.bot ul { margin: 6px 0; padding-left: 18px; }
-    .pc-msg.bot li { margin: 2px 0; }
+    .pc-msg.bot ul, .pc-msg.bot ol { margin: 6px 0; padding-left: 19px; }
+    .pc-msg.bot li { margin: 3px 0; }
     .pc-msg.bot code { background: var(--pc-surface); padding: 1px 5px; border-radius: 5px; font-size: 12px;
       font-family: 'SFMono-Regular',Consolas,monospace; }
-    .pc-msg.bot h4 { margin: 8px 0 4px; font-size: 13px; font-weight: 800; }
-    .pc-msg.bot p { margin: 5px 0; }
+    .pc-msg.bot h4 { margin: 9px 0 4px; font-size: 12.5px; font-weight: 800; letter-spacing:.01em; }
+    .pc-msg.bot p { margin: 5px 0; } .pc-msg.bot p:first-child { margin-top: 0; } .pc-msg.bot p:last-child { margin-bottom: 0; }
 
-    .pc-intro { text-align: center; color: var(--pc-muted); padding: 14px 8px 2px; }
-    .pc-intro .pc-bigicon { width: 46px; height: 46px; margin: 0 auto 10px;
-      border-radius: 14px; background: var(--pc-grad); display: flex; align-items: center;
-      justify-content: center; color: #fff; box-shadow: 0 8px 22px rgba(37,99,235,0.4); }
-    .pc-intro h3 { color: var(--pc-text); font-size: 15px; font-weight: 800; margin: 0 0 4px; }
-    .pc-intro p { font-size: 12.5px; margin: 0 0 4px; line-height: 1.5; }
-    .pc-ctx { display: inline-block; margin-top: 8px; font-size: 10.5px; font-weight: 700;
+    /* ── Intro ── */
+    .pc-intro { text-align: center; color: var(--pc-muted); padding: 18px 8px 2px; animation: pcUp .3s ease both; }
+    .pc-intro .pc-bigicon { width: 50px; height: 50px; margin: 0 auto 12px; border-radius: 16px;
+      background: var(--pc-grad); display: flex; align-items: center; justify-content: center; color: #fff;
+      box-shadow: 0 10px 26px rgba(37,99,235,0.42); }
+    .pc-intro .pc-bigicon svg { width: 26px; height: 26px; }
+    .pc-intro h3 { color: var(--pc-text); font-size: 15.5px; font-weight: 800; margin: 0 0 5px; }
+    .pc-intro p { font-size: 12.5px; margin: 0 auto 4px; line-height: 1.5; max-width: 280px; }
+    .pc-ctx { display: inline-block; margin-top: 9px; font-size: 10.5px; font-weight: 700;
       letter-spacing: .06em; text-transform: uppercase; color: var(--pc-muted);
-      background: var(--pc-surface); border: 1px solid var(--pc-border); border-radius: 999px; padding: 4px 10px; }
-    .pc-chips { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
-    .pc-chip { text-align: left; padding: 11px 13px; border-radius: 11px; cursor: pointer;
-      background: var(--pc-bg); border: 1px solid var(--pc-border); color: var(--pc-text);
+      background: var(--pc-surface); border: 1px solid var(--pc-border); border-radius: 999px; padding: 4px 11px; }
+    .pc-chips { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+    .pc-chip { text-align: left; padding: 11px 13px; border-radius: 12px; cursor: pointer;
+      background: var(--pc-solid); border: 1px solid var(--pc-border); color: var(--pc-text);
       font-size: 13px; font-weight: 500; transition: all .15s; display: flex; align-items: center; gap: 9px; }
-    .pc-chip:hover { border-color: var(--pc-user); transform: translateX(2px);
-      box-shadow: 0 3px 12px rgba(37,99,235,0.16); }
-    .pc-chip .pc-arrow { margin-left: auto; color: var(--pc-user); opacity: .5; }
+    .pc-chip:hover { border-color: var(--pc-user); transform: translateX(3px);
+      box-shadow: 0 4px 14px rgba(37,99,235,0.18); }
+    .pc-chip .pc-arrow { margin-left: auto; color: var(--pc-user); opacity: .55; font-weight:700; }
 
-    .pc-typing { display: inline-flex; gap: 4px; padding: 4px 2px; }
+    .pc-typing { display: inline-flex; gap: 4px; padding: 3px 2px; }
     .pc-typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--pc-muted);
       animation: pcBlink 1.2s infinite both; }
     .pc-typing span:nth-child(2){ animation-delay: .2s } .pc-typing span:nth-child(3){ animation-delay: .4s }
     @keyframes pcBlink { 0%,80%,100%{opacity:.25} 40%{opacity:1} }
 
-    .pc-foot { padding: 11px 12px; background: var(--pc-bg); border-top: 1px solid var(--pc-border); }
-    .pc-inputrow { display: flex; align-items: flex-end; gap: 8px;
-      background: var(--pc-surface); border: 1px solid var(--pc-border); border-radius: 13px; padding: 6px 6px 6px 13px;
+    /* ── Footer ── */
+    .pc-foot { padding: 11px 12px; background: var(--pc-solid); border-top: 1px solid var(--pc-border); }
+    .pc-inputrow { display: flex; align-items: flex-end; gap: 8px; background: var(--pc-surface);
+      border: 1px solid var(--pc-border); border-radius: 14px; padding: 6px 6px 6px 13px;
       transition: border-color .15s, box-shadow .15s; }
     .pc-inputrow:focus-within { border-color: var(--pc-user); box-shadow: 0 0 0 3px rgba(37,99,235,0.16); }
     #pc-input { flex: 1; border: none; outline: none; resize: none; background: transparent; color: var(--pc-text);
       font-size: 13.5px; line-height: 1.4; max-height: 96px; padding: 5px 0; }
     #pc-input::placeholder { color: var(--pc-muted); }
-    #pc-send { flex: none; width: 36px; height: 36px; border: none; border-radius: 10px; cursor: pointer;
+    #pc-send { flex: none; width: 37px; height: 37px; border: none; border-radius: 11px; cursor: pointer;
       background: var(--pc-grad); color: #fff; display: flex; align-items: center; justify-content: center;
-      transition: transform .15s, opacity .15s; }
-    #pc-send:hover { transform: scale(1.06); } #pc-send:disabled { opacity: .4; cursor: default; transform: none; }
+      transition: transform .15s, opacity .15s; box-shadow: 0 4px 12px rgba(37,99,235,.32); }
+    #pc-send:hover { transform: scale(1.08); } #pc-send:disabled { opacity: .4; cursor: default; transform: none; box-shadow:none; }
     .pc-disclaimer { text-align: center; font-size: 10px; color: var(--pc-muted); margin-top: 7px; }
-    .pc-reset { background: none; border: none; color: var(--pc-user); cursor: pointer; font-size: 11px; font-weight: 600; }
+    .pc-reset { background: none; border: none; color: var(--pc-user); cursor: pointer; font-size: 11px; font-weight: 600; padding:0; }
+    .pc-reset:hover { text-decoration: underline; }
   `;
   pdoc.head.appendChild(style);
 
@@ -385,10 +410,10 @@ _WIDGET_TEMPLATE = r"""
     </button>
     <div id="pc-panel" role="dialog" aria-label="PREMA Copilot">
       <div class="pc-head">
-        <div class="pc-avatar">AI</div>
+        <div class="pc-avatar">${BOT_SVG}</div>
         <div class="pc-htext">
           <div class="pc-htitle">PREMA Copilot</div>
-          <div class="pc-hsub"><span class="pc-live"></span>Groq · Llama 3.3 70B · Diagnose-Assistent</div>
+          <div class="pc-hsub"><span class="pc-live"></span>Online · Groq Llama 3.3 70B</div>
         </div>
         <button class="pc-close" aria-label="Schließen">×</button>
       </div>
@@ -411,27 +436,33 @@ _WIDGET_TEMPLATE = r"""
 
   // ── Mini-Markdown (sicher: erst escapen, dann gezielt formatieren) ──
   function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function fmt(t){ return t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>'); }
   function mdToHtml(src) {
-    var lines = esc(src).split('\n'), out = [], list = null;
-    function fmt(t){
-      return t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
-              .replace(/`([^`]+)`/g,'<code>$1</code>');
-    }
+    var lines = esc(src).split('\n'), out = [], items = null, ltype = null;
+    function flush(){ if(items){ out.push('<'+ltype+'>'+items.join('')+'</'+ltype+'>'); items=null; ltype=null; } }
     for (var i=0;i<lines.length;i++){
       var ln = lines[i];
-      var m = ln.match(/^\s*[-*]\s+(.*)$/);
-      if (m){ if(!list){ list=[]; } list.push('<li>'+fmt(m[1])+'</li>'); continue; }
-      if (list){ out.push('<ul>'+list.join('')+'</ul>'); list=null; }
+      var ul = ln.match(/^\s*[-*•]\s+(.*)$/);
+      var ol = ln.match(/^\s*\d+[.)]\s+(.*)$/);
+      if (ul){ if(ltype!=='ul'){ flush(); items=[]; ltype='ul'; } items.push('<li>'+fmt(ul[1])+'</li>'); continue; }
+      if (ol){ if(ltype!=='ol'){ flush(); items=[]; ltype='ol'; } items.push('<li>'+fmt(ol[1])+'</li>'); continue; }
+      flush();
       var h = ln.match(/^#{1,6}\s+(.*)$/);
       if (h){ out.push('<h4>'+fmt(h[1])+'</h4>'); continue; }
       if (ln.trim()===''){ continue; }
       out.push('<p>'+fmt(ln)+'</p>');
     }
-    if (list) out.push('<ul>'+list.join('')+'</ul>');
+    flush();
     return out.join('');
   }
 
   function scrollDown(){ elBody.scrollTop = elBody.scrollHeight; }
+  function addUser(text){ var d=pdoc.createElement('div'); d.className='pc-msg user'; d.textContent=text; elBody.appendChild(d); return d; }
+  function addBot(){
+    var row=pdoc.createElement('div'); row.className='pc-row';
+    row.innerHTML='<div class="pc-mini">'+BOT_SVG+'</div><div class="pc-msg bot"></div>';
+    elBody.appendChild(row); return row.querySelector('.pc-msg');
+  }
 
   function renderIntro() {
     var cfg = STATE.config;
@@ -441,7 +472,7 @@ _WIDGET_TEMPLATE = r"""
     }).join('');
     elBody.innerHTML =
       '<div class="pc-intro">'+
-        '<div class="pc-bigicon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a5 5 0 0 1 5 5v2a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"/><path d="M19 13a7 7 0 0 1-14 0"/><line x1="12" y1="20" x2="12" y2="22"/></svg></div>'+
+        '<div class="pc-bigicon">'+BOT_SVG+'</div>'+
         '<h3>Wie kann ich helfen?</h3>'+
         '<p>Ich kenne den Live-Zustand deiner Flotte, alle Alerts und die DTC-Referenz.</p>'+
         '<div class="pc-ctx">⌖ '+esc(cfg.contextLabel)+'</div>'+
@@ -456,27 +487,34 @@ _WIDGET_TEMPLATE = r"""
     if (!STATE.messages.length) { renderIntro(); return; }
     elBody.innerHTML = '';
     STATE.messages.forEach(function(m){
-      var d = pdoc.createElement('div');
-      d.className = 'pc-msg ' + (m.role==='user'?'user':'bot');
-      d.innerHTML = m.role==='user' ? esc(m.content) : mdToHtml(m.content);
-      elBody.appendChild(d);
+      if (m.role==='user') addUser(m.content);
+      else addBot().innerHTML = mdToHtml(m.content);
     });
     scrollDown();
   }
 
-  // STATE.refreshStarters: nach Kontextwechsel (neue Seite) die Chips updaten,
-  // solange noch keine Konversation läuft.
+  // Nach Kontextwechsel (neue Seite) die Chips updaten, solange noch keine
+  // Konversation läuft.
   STATE.refreshStarters = function(){ if(!STATE.messages.length) renderIntro(); };
 
   async function streamGroq(messages, onToken) {
     var cfg = STATE.config;
-    var res = await fetch(cfg.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey },
-      body: JSON.stringify({ model: cfg.model, messages: messages, temperature: cfg.temperature,
-                             max_tokens: cfg.maxTokens, stream: true })
-    });
-    if (!res.ok) { var t = await res.text(); throw new Error('HTTP ' + res.status + ' – ' + t.slice(0,200)); }
+    var res;
+    try {
+      res = await fetch(cfg.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey },
+        body: JSON.stringify({ model: cfg.model, messages: messages, temperature: cfg.temperature,
+                               max_tokens: cfg.maxTokens, stream: true })
+      });
+    } catch (e) { throw new Error('Keine Verbindung zu Groq. Internetverbindung prüfen.'); }
+    if (!res.ok) {
+      var raw = await res.text(), m = raw;
+      try { m = JSON.parse(raw).error.message || raw; } catch(e){}
+      if (res.status === 429) throw new Error('Zu viele Anfragen in kurzer Zeit – kurz warten und erneut senden.');
+      if (res.status === 401) throw new Error('API-Key ungültig oder abgelaufen. Bitte in den Secrets prüfen.');
+      throw new Error(m.slice(0,180));
+    }
     var reader = res.body.getReader(), dec = new TextDecoder(), buf = '';
     while (true) {
       var r = await reader.read(); if (r.done) break;
@@ -500,12 +538,12 @@ _WIDGET_TEMPLATE = r"""
     if (!STATE.messages.length) elBody.innerHTML = '';
 
     STATE.messages.push({ role:'user', content:text });
-    var u = pdoc.createElement('div'); u.className='pc-msg user'; u.textContent=text; elBody.appendChild(u);
+    addUser(text);
     elInput.value=''; elInput.style.height='auto'; scrollDown();
 
-    var bot = pdoc.createElement('div'); bot.className='pc-msg bot';
+    var bot = addBot();
     bot.innerHTML = '<div class="pc-typing"><span></span><span></span><span></span></div>';
-    elBody.appendChild(bot); scrollDown();
+    scrollDown();
 
     var cfg = STATE.config;
     var convo = STATE.messages.slice(-cfg.maxHistory);
@@ -513,10 +551,10 @@ _WIDGET_TEMPLATE = r"""
     var acc = '';
     try {
       await streamGroq(payload, function(tok){ acc += tok; bot.innerHTML = mdToHtml(acc); scrollDown(); });
-      if (!acc) { acc = 'Keine Antwort erhalten.'; bot.innerHTML = mdToHtml(acc); }
+      if (!acc) { acc = 'Ich habe gerade keine Antwort erhalten. Bitte erneut versuchen.'; bot.innerHTML = mdToHtml(acc); }
       STATE.messages.push({ role:'assistant', content: acc });
     } catch (err) {
-      bot.innerHTML = '<strong>Verbindungsfehler.</strong> ' + esc(String(err.message||err));
+      bot.innerHTML = '<strong>⚠️ '+esc(String(err.message||err))+'</strong>';
       STATE.messages.pop();
     } finally {
       STATE.busy = false; elSend.disabled = false; elInput.focus();
